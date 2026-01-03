@@ -21,7 +21,7 @@ Before running the project, ensure you have the following installed:
 Open a terminal and run the following command to download and serve the Llama 3 model locally. Keep this terminal window **open** in the background.
 
 ```bash
-ollama run llama3
+ollama run llama3.2-vision
 # Wait for the download to finish. 
 # Once you see the '>>>' prompt, the model is ready.
 # You can minimize this window, but do not close it.

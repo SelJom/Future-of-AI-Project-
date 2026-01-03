@@ -2,9 +2,7 @@ import ollama
 from PIL import Image
 import io
 import fitz  
-import json
-
-VISION_MODEL = "llama3.2-vision"
+from app.config import Config
 
 def analyze_prescription(image_bytes):
     """
@@ -33,7 +31,7 @@ def analyze_prescription(image_bytes):
     
     try:
         response = ollama.chat(
-            model=VISION_MODEL,
+            model=Config.VISION_MODEL_NAME,
             messages=[{
                 'role': 'user',
                 'content': prompt,

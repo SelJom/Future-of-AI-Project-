@@ -36,3 +36,5 @@ def build_graph():
     workflow.add_edge("matcher", END)
 
     return workflow.compile()
+
+graph = build_graph()

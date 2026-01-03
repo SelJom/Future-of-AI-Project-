@@ -9,7 +9,6 @@ class FairnessAuditor:
     def audit_text(self, text: str) -> dict:
         """
         Calculates Toxicity and Complexity scores.
-        Satisfies Rubric B02 (Calculate Metrics).
         """
         prompt = f"""
         You are an AI Ethics Auditor. Analyze the following medical text.

@@ -5,6 +5,7 @@ pillow
 langchain
 langchain-community
 langchain-core
+langchain-huggingface
 langchain-openai
 langgraph
 chromadb
