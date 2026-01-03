@@ -1,0 +1,14 @@
+streamlit
+ollama
+pymupdf
+pillow
+langchain
+langchain-community
+langchain-core
+langchain-openai
+langgraph
+chromadb
+sentence-transformers
+python-dotenv
+tiktoken
+pydantic

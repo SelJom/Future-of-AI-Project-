@@ -57,7 +57,7 @@ Plutôt qu’un modèle monolithique qui fait tout, le processus est divisé en 
 ### A. Compréhension Médicale & Extraction
 
 - **Choix recommandé (API gratuit / freemium)**  
-  - **Gemini 1.5 Flash (Google)**  (il y a aussi MedPalm à tester)
+  - **Gemini 2.5 Flash (Google)**  (il y a aussi MedPalm à tester)
   - **GPT-4o-mini (OpenAI)**  
 
   **Justification :**
