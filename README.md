@@ -1,145 +1,238 @@
-# Future-of-AI-Project-
+```markdown
+# Future-of-AI-Project
 
-1. Architecture Technique Globale
-L'approche recommandée est un Pipeline Modulaire Asynchrone. Plutôt qu'un modèle monolithique qui fait tout, nous divisons le processus en étapes distinctes. Cela permet de changer un maillon (ex: le module OCR) sans casser le reste.
+---
 
-Le Pipeline (Input → Output)
-Ingestion & Nettoyage (OCR/Parsing) : Conversion du document (PDF/Image) en texte brut structuré.
+## 1. Architecture Technique Globale
 
-Extraction Médicale (Expert Agent) : Identification des entités (médicaments, dosages, pathologie) sans simplification.
+L’approche recommandée est un **Pipeline Modulaire Asynchrone**.  
+Plutôt qu’un modèle monolithique qui fait tout, le processus est divisé en **étapes distinctes**, ce qui permet de remplacer un module (ex : OCR) sans impacter le reste du système.
 
-Adaptation & Traduction (Translator Agent) : Reformulation selon le profil utilisateur (Langue, Niveau de littératie).
+### 🔁 Le Pipeline (Input → Output)
 
-Vérification (Guardian Agent) : Comparaison critique entre l'Extraction (2) et l'Adaptation (3) pour éviter les hallucinations.
+- **Ingestion & Nettoyage (OCR / Parsing)**  
+  Conversion du document *(PDF / Image)* en **texte brut structuré**.
 
-Interface Utilisateur : Présentation du résultat.
+- **Extraction Médicale (Expert Agent)**  
+  Identification des entités médicales *(médicaments, dosages, pathologies)* **sans simplification**.
 
-Stack Technologique Recommandée
-Langage : Python 3.10+ (Standard pour l'IA/NLP).
+- **Adaptation & Traduction (Translator Agent)**  
+  Reformulation selon le **profil utilisateur** *(langue, niveau de littératie)*.
 
-Backend / API : FastAPI.
+- **Vérification (Guardian Agent)**  
+  Comparaison critique entre l’Extraction et l’Adaptation pour **éviter les hallucinations**.
 
-Pourquoi ? Plus performant que Flask (asynchrone), validation des données native via Pydantic (crucial pour structurer les données médicales), et documentation automatique (Swagger UI) pour vos tests.
+- **Interface Utilisateur**  
+  Présentation claire et accessible du résultat final.
 
-Orchestration LLM : LangChain ou LangGraph.
+---
 
-Pourquoi ? Pour gérer la mémoire, les templates de prompts et l'enchaînement des agents.
+## 2. Stack Technologique Recommandée
 
-Frontend (MVP) : Streamlit.
+- **Langage** : **Python 3.10+**  
+  Standard de facto pour l’IA et le NLP.
 
-Pourquoi ? Permet de créer une interface web propre en pur Python en quelques heures, idéal pour un projet étudiant, plutôt que de perdre du temps sur React/Vue.
+- **Backend / API** : **FastAPI**  
+  **Pourquoi ?**
+  - Asynchrone et très performant  
+  - Validation native via **Pydantic** (crucial pour les données médicales)  
+  - Documentation automatique (**Swagger UI**)
 
-2. Choix des Modèles (Contrainte Budget Étudiant)
-L'accès à Med-PaLM est restreint. Il faut être réaliste et utiliser des modèles généralistes très performants avec un "Prompting" expert, ou des petits modèles open-source.
+- **Orchestration LLM** : **LangChain** ou **LangGraph**  
+  **Pourquoi ?**
+  - Gestion des prompts  
+  - Mémoire conversationnelle  
+  - Enchaînement et coordination des agents
 
-A. Compréhension Médicale & Extraction
-Choix recommandé (API Gratuit/Freemium) : Gemini 1.5 Flash (Google) ou GPT-4o-mini (OpenAI).
+- **Frontend (MVP)** : **Streamlit**  
+  **Pourquoi ?**
+  - Interface web rapide en pur Python  
+  - Idéal pour un projet étudiant  
+  - Évite la complexité de React/Vue
 
-Justification : Ces modèles ont un coût très faible (voire gratuit via Google AI Studio pour les développeurs) et une excellente capacité de raisonnement et de contexte (long context window) pour lire des comptes rendus longs.
+---
 
-Alternative Open-Source (Local) : BioMistral-7B.
+## 3. Choix des Modèles (Contrainte Budget Étudiant)
 
-Justification : Modèle spécialisé médical basé sur Mistral.
+### A. Compréhension Médicale & Extraction
 
-Contrainte : Nécessite un GPU (Google Colab ou machine locale puissante). Pour un backend web hébergé simplement, c'est complexe. Restez sur l'API si possible.
+- **Choix recommandé (API gratuit / freemium)**  
+  - **Gemini 1.5 Flash (Google)**  
+  - **GPT-4o-mini (OpenAI)**  
 
-B. Simplification & Adaptation
-Choix recommandé : Llama 3 (via Groq) ou Gemini 1.5 Flash.
+  **Justification :**
+  - Coût très faible voire gratuit  
+  - Excellent raisonnement  
+  - Très grande fenêtre de contexte (documents longs)
 
-Justification : Groq offre une inférence ultra-rapide et gratuite (actuellement) pour les modèles open-source comme Llama 3. Llama 3 est excellent pour suivre des instructions de style (ton, niveau de langue).
+- **Alternative Open-Source (Local)**  
+  - **BioMistral-7B**
 
-3. Stratégie Multi-Agent (Architecture Idéale)
-Pour garantir la sécurité médicale, l'architecture Multi-Agent est la plus robuste. Elle sépare la "connaissance" de la "pédagogie".
+  **Justification :**
+  - Modèle spécialisé médical  
+  - Basé sur Mistral  
 
-Rôles des Agents
-L'Agent Extracteur ("Le Médecin")
+  **Contrainte :**
+  - Nécessite un **GPU** (Colab ou machine puissante)  
+  - Peu adapté à un backend web simple  
+  👉 **API recommandée pour le MVP**
 
-Tâche : Lit le texte brut. Extrait un JSON strict contenant : diagnostic, médicaments, posologie, signes_alarme. Ne simplifie rien. Conserve le jargon.
+---
 
-Prompt System : "Tu es un expert médical. Extrais les faits cliniques exacts. Ne résume pas, n'invente rien."
+### B. Simplification & Adaptation
 
-L'Agent Traducteur ("Le Pédagogue")
+- **Choix recommandé**
+  - **Llama 3 (via Groq)**  
+  - **Gemini 1.5 Flash**
 
-Tâche : Reçoit le JSON de l'Extracteur + le Profil Utilisateur (ex: "Niveau CM2, Langue Espagnol"). Rédige le texte final.
+**Justification :**
+- Groq : inférence **ultra-rapide** et gratuite (actuellement)  
+- Llama 3 : excellent suivi des **instructions de style et de ton**
 
-Prompt System : "Tu es un médiateur en santé. Utilise des analogies simples. Explique 'Hypertension' par 'Tension artérielle élevée'. Ton ton doit être empathique."
+---
 
-L'Agent Critique ("Le Pharmacien") - Optionnel mais recommandé
+## 4. Stratégie Multi-Agent (Architecture Idéale)
 
-Tâche : Compare la sortie de l'Agent Traducteur avec le JSON de l'Agent Extracteur.
+Pour garantir la **sécurité médicale**, une architecture **Multi-Agent** est la plus robuste.  
+Elle sépare clairement la **connaissance médicale** de la **pédagogie**.
 
-Check : "Est-ce que le dosage 500mg a été conservé ? Est-ce que la traduction de 'Angine de poitrine' est correcte ?" Si non → renvoie pour correction.
+### 🧠 Rôles des Agents
 
-4. Gestion du Contexte et de la Mémoire
-Dans une application médicale, la "mémoire" doit être gérée avec prudence pour ne pas mélanger les dossiers patients.
+#### 🩺 Agent Extracteur — *« Le Médecin »*
 
-Ce qui est stocké (Session State) :
+- **Tâche** :
+  - Lecture du texte brut
+  - Extraction dans un **JSON strict** :
+    - diagnostic  
+    - médicaments  
+    - posologie  
+    - signes_alarme  
 
-Le profil utilisateur courant (Langue, Niveau d'étude).
+- **Règles** :
+  - Aucune simplification  
+  - Aucun ajout  
+  - Jargon médical conservé
 
-Le document en cours de traitement (texte extrait).
+- **Prompt système** :
+  > *« Tu es un expert médical. Extrais les faits cliniques exacts. Ne résume pas, n’invente rien. »*
 
-L'historique de conversation immédiat (Questions/Réponses sur ce document précis).
+---
 
-Ce qui n'est PAS stocké (ou anonymisé) :
+#### 📚 Agent Traducteur — *« Le Pédagogue »*
 
-Les données personnelles identifiables (PII) extraites du document (Nom du patient, adresse).
+- **Tâche** :
+  - Reçoit le JSON médical  
+  - Reçoit le **profil utilisateur** *(ex : “Niveau CM2, Langue Espagnol”)*  
+  - Génère le texte final adapté
 
-Pourquoi ? Sécurité des données (RGPD/HIPAA). Votre MVP étudiant ne peut pas garantir la sécurité d'une base de données médicale persistante.
+- **Prompt système** :
+  > *« Tu es un médiateur en santé. Utilise des analogies simples. Explique “Hypertension” par “Tension artérielle élevée”. Ton ton doit être empathique. »*
 
-Implémentation Technique :
+---
 
-Utilisez LangChain Memory (ConversationBufferWindowMemory) avec une fenêtre glissante courte (k=5 échanges) pour garder le contexte des questions de clarification ("C'est quoi ce médicament ?" "Et je le prends quand ?").
+#### 💊 Agent Critique — *« Le Pharmacien »* *(Optionnel mais recommandé)*
 
-5. Biais et Stratégies de Mitigation
-C'est un point critique de votre cahier des charges.
+- **Tâche** :
+  - Compare la sortie du Traducteur avec le JSON de l’Extracteur
 
-Identification des Biais
-Biais Socio-Éducatif : Risque que le modèle soit condescendant ("parler bébé") pour les niveaux d'éducation faibles.
+- **Vérifications** :
+  - Le dosage est-il conservé ? *(ex : 500 mg)*  
+  - Les termes médicaux sont-ils correctement traduits ?  
 
-Biais Culturel : Certaines analogies médicales occidentales ne fonctionnent pas ailleurs (ex: comparer la taille d'une tumeur à un aliment spécifique non connu).
+- **Action** :
+  - En cas d’erreur → **renvoi pour correction**
 
-Biais Linguistique : Perte de nuance lors de la traduction automatique de termes techniques.
+---
 
-Stratégie de Mitigation (À implémenter)
-System Prompting "Persona" : Forcer le modèle à adopter une posture de "Respectful Health Advocate". Interdire explicitement le ton infantilisant dans le prompt.
+## 5. Gestion du Contexte et de la Mémoire
 
-Few-Shot Prompting (Exemples) :
+Dans une application médicale, la mémoire doit être gérée avec **extrême prudence**.
 
-Inclure dans le prompt de l'agent traducteur 3 exemples de traductions réussies :
+### ✅ Ce qui est stocké (Session State)
 
-Mauvais : "Prends tes bobos-pilules."
+- Profil utilisateur *(langue, niveau d’étude)*  
+- Document en cours de traitement  
+- Historique immédiat de Q/R sur ce document
 
-Bon : "Prenez ce médicament pour aider votre cœur à battre plus régulièrement."
+### ❌ Ce qui n’est PAS stocké (ou anonymisé)
 
-Disclaimer Automatique : La sortie doit toujours être précédée ou suivie d'une mention : "Ceci est une aide à la lecture générée par IA. En cas de doute, référez-vous toujours au document original ou à votre médecin."
+- Données personnelles identifiables *(PII)* :
+  - Nom  
+  - Adresse  
+  - Numéro de dossier  
 
-6. Approche Progressive (MVP)
-Ne visez pas la lune tout de suite. Construisez par couches.
+**Pourquoi ?**
+- Sécurité des données  
+- Conformité **RGPD / HIPAA**  
+- Un MVP étudiant ne garantit pas une persistance sécurisée
 
-Semaine 1-2 : Le MVP "Monolithique"
+### 🛠️ Implémentation Technique
 
-Pas d'agents multiples. Un seul appel LLM (Gemini).
+- **LangChain Memory**
+  - `ConversationBufferWindowMemory`
+  - Fenêtre glissante courte *(k = 5 échanges)*  
+  - Suffisant pour les questions de clarification
 
-Input : Copier-coller de texte (pas d'OCR).
+---
 
-Output : Texte simplifié.
+## 6. Biais et Stratégies de Mitigation
 
-Interface : Script Python simple (CLI).
+### ⚠️ Identification des Biais
 
-Semaine 3-4 : Intégration et OCR
+- **Biais socio-éducatif**  
+  Risque de ton infantilisant pour les niveaux faibles
 
-Ajout de Tesseract/PyMuPDF pour lire les PDF.
+- **Biais culturel**  
+  Analogies occidentales non universelles
 
-Création de l'API FastAPI.
+- **Biais linguistique**  
+  Perte de nuance lors de la traduction
 
-Interface Streamlit basique.
+---
 
-Semaine 5-6 : Architecture Multi-Agent & Robustesse
+### ✅ Stratégies de Mitigation
 
-Séparation en Agent Extracteur vs Traducteur.
+- **System Prompting – Persona**
+  - Rôle imposé : *Respectful Health Advocate*
+  - Interdiction explicite du ton infantilisant
 
-Ajout de la gestion des erreurs (ex: "Document illisible").
+- **Few-Shot Prompting (Exemples)**
 
-Mise en place des tests de biais.
+  - ❌ *Mauvais* :  
+    > « Prends tes bobos-pilules. »
 
+  - ✅ *Bon* :  
+    > « Prenez ce médicament pour aider votre cœur à battre plus régulièrement. »
+
+- **Disclaimer Automatique**
+  > *« Ceci est une aide à la lecture générée par IA. En cas de doute, référez-vous toujours au document original ou à votre médecin. »*
+
+---
+
+## 7. Approche Progressive (MVP)
+
+### 🟢 Semaine 1–2 : MVP Monolithique
+
+- Un seul appel LLM *(Gemini)*  
+- Input : texte copié-collé  
+- Output : texte simplifié  
+- Interface : **CLI Python**
+
+---
+
+### 🟡 Semaine 3–4 : Intégration & OCR
+
+- OCR avec **Tesseract / PyMuPDF**  
+- API **FastAPI**  
+- Interface **Streamlit** basique
+
+---
+
+### 🔵 Semaine 5–6 : Multi-Agent & Robustesse
+
+- Séparation Extracteur / Traducteur  
+- Gestion des erreurs *(document illisible, champs manquants)*  
+- Mise en place de **tests de biais**
+
+---
+```
