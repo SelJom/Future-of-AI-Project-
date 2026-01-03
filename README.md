@@ -1,4 +1,4 @@
-```markdown
+
 # Future-of-AI-Project
 
 ---
