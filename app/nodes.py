@@ -12,8 +12,8 @@ def route_query(state):
     prompt = f"""
     Classify this intent: "{query}"
     Reply EXACTLY one word:
-    - MATCHING (if looking for clinical trials, studies, or treatments)
-    - LITERACY (if asking for definition, simplification, or explanation)
+    - MATCHING (clinical trials, studies)
+    - LITERACY (definitions, side effects, explanations, chat)
     """
     response = llm.invoke([HumanMessage(content=prompt)])
     decision = response.content.strip().upper()
@@ -24,31 +24,50 @@ def route_query(state):
 # --- 2. Literacy Agents ---
 def simplifier_agent(state):
     original = state["user_query"]
+    
+    # Get Profile Data
+    age = state.get("user_age", 30)
+    level = state.get("literacy_level", "Adulte")
+    
+    # Get Document Context (if any)
+    doc_context = state.get("active_document_context", "")
+    
+    # Dynamic System Prompt
+    system_prompt = f"""
+    You are a compassionate Health Literacy Expert.
+    
+    Target Audience:
+    - Age: {age} years old
+    - Comprehension Level: {level}
+    
+    Context (Scanned Document):
+    {doc_context}
+    
+    Task: Answer the user's question clearly. 
+    - If explaining medical terms, use analogies suitable for a {age} year old.
+    - Be empathetic and reassuring.
+    - If the context contains a prescription, refer to it specifically.
+    """
+    
     msg = [
-        SystemMessage(content="You are a Health Literacy Expert. Rewrite the text for a 6th-grade reading level. Be empathetic."),
+        SystemMessage(content=system_prompt),
         HumanMessage(content=original)
     ]
     res = llm.invoke(msg)
     return {"simplified_text": res.content}
 
 def critic_agent(state):
-    """
-    Implements Grading B02 (Metrics) and B03 (Mitigation).
-    Calculates fairness scores and critiques medical accuracy.
-    """
     simplified = state["simplified_text"]
-    
-    # A. Calculate Fairness Metrics
     metrics = auditor.audit_text(simplified)
     
-    # B. Medical Critique
-    critique_prompt = f"Check if this simplification lost medical meaning. Text: {simplified}. Reply 'OK' or explain the error."
+    # Simple check
+    critique_prompt = f"Check if this text is medically accurate but simple: '{simplified}'. Reply 'OK' or briefly explain errors."
     critique = llm.invoke([HumanMessage(content=critique_prompt)]).content
     
     return {
         "fairness_metrics": metrics,
         "literacy_critique": critique,
-        "fairness_flag": metrics['toxicity_score'] > 5 # Flag if toxic
+        "fairness_flag": metrics['toxicity_score'] > 5
     }
 
 # --- 3. Matching Agents ---
@@ -60,8 +79,8 @@ def matcher_agent(state):
     trials = "\n".join(state["retrieved_trials"])
     query = state["user_query"]
     msg = [
-        SystemMessage(content="You are a Clinical Research Coordinator. Analyze the patient profile against the trials."),
-        HumanMessage(content=f"Patient: {query}\n\nAvailable Trials:\n{trials}")
+        SystemMessage(content="Clinical Research Coordinator. Match patient to trials."),
+        HumanMessage(content=f"Patient: {query}\n\nTrials:\n{trials}")
     ]
     res = llm.invoke(msg)
     return {"final_recommendation": res.content}
