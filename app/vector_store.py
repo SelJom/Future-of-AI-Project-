@@ -1,20 +1,113 @@
-# app/vector_store.py
-import chromadb
+import os
+import json
 import uuid
 import datetime
-from langchain_huggingface import HuggingFaceEmbeddings 
+import torch
+import chromadb
+from langchain_huggingface import HuggingFaceEmbeddings
 from app.config import Config
 
+# ==========================================
+# PART 1: SESSION MANAGEMENT (Chat History)
+# ==========================================
+SESSION_FILE = "./data/sessions.json"
+
+def ensure_session_file():
+    """Ensures the data directory and sessions.json file exist."""
+    if not os.path.exists("./data"):
+        os.makedirs("./data")
+    if not os.path.exists(SESSION_FILE):
+        with open(SESSION_FILE, "w", encoding="utf-8") as f:
+            json.dump({}, f)
+
+def get_all_sessions():
+    """Returns the dictionary of all sessions."""
+    ensure_session_file()
+    try:
+        with open(SESSION_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except:
+        return {}
+
+def create_session(title="Nouvelle Conversation"):
+    """Creates a new session entry."""
+    sessions = get_all_sessions()
+    session_id = str(uuid.uuid4())
+    sessions[session_id] = {
+        "title": title,
+        "timestamp": str(datetime.datetime.now()),
+        "history": []
+    }
+    with open(SESSION_FILE, "w", encoding="utf-8") as f:
+        json.dump(sessions, f, indent=4)
+    return session_id
+
+def save_message_to_session(session_id, role, content):
+    """Appends a message to the history."""
+    sessions = get_all_sessions()
+    if session_id in sessions:
+        sessions[session_id]["history"].append({"role": role, "content": content})
+        
+        # Note: We removed the automatic renaming here because 
+        # main.py now handles it with the LLM logic.
+        
+        with open(SESSION_FILE, "w", encoding="utf-8") as f:
+            json.dump(sessions, f, indent=4)
+
+def get_session_history(session_id):
+    """Returns the message list for a specific session."""
+    sessions = get_all_sessions()
+    return sessions.get(session_id, {}).get("history", [])
+
+# --- NEW FUNCTIONS ADDED BELOW ---
+
+def delete_session(session_id: str):
+    """
+    Deletes a specific session from the JSON file.
+    """
+    sessions = get_all_sessions()
+    if session_id in sessions:
+        del sessions[session_id]
+        with open(SESSION_FILE, "w", encoding="utf-8") as f:
+            json.dump(sessions, f, indent=4)
+        return True
+    return False
+
+def update_session_title(session_id: str, new_title: str):
+    """
+    Updates the title of a specific session.
+    """
+    sessions = get_all_sessions()
+    if session_id in sessions:
+        sessions[session_id]["title"] = new_title
+        with open(SESSION_FILE, "w", encoding="utf-8") as f:
+            json.dump(sessions, f, indent=4, ensure_ascii=False)
+        return True
+    return False
+
+# ==========================================
+# PART 2: VECTOR STORE (RAG & Medical Brain)
+# ==========================================
+
+def get_device():
+    if torch.cuda.is_available():
+        return "cuda"
+    return "cpu"
+
 def get_vector_store():
-    # 1. Init du client Chroma
+    # Ensure directory exists
+    if not os.path.exists(Config.CHROMA_DB_PATH):
+        os.makedirs(Config.CHROMA_DB_PATH)
+
     client = chromadb.PersistentClient(path=Config.CHROMA_DB_PATH)
+    device = get_device()
     
     embedding_func = HuggingFaceEmbeddings(
-        model_kwargs={'device': 'cuda'},
-        model_name=Config.EMBEDDING_MODEL_NAME
-
+        model_kwargs={'device': device},
+        model_name=Config.EMBEDDING_MODEL_NAME,
+        encode_kwargs={'normalize_embeddings': True}
     )
-    
+
     collection = client.get_or_create_collection(
         name="medical_knowledge_base",
         metadata={"hnsw:space": "cosine"}
@@ -22,66 +115,43 @@ def get_vector_store():
     return collection, embedding_func
 
 def query_trials(query_text: str, n_results=3):
-    collection, embedding_func = get_vector_store()
-    query_vec = embedding_func.embed_query(query_text)
-    
-    results = collection.query(
-        query_embeddings=[query_vec],
-        n_results=n_results,
-        where={"type": "trial"}
-    )
-    
-    if not results['documents'] or not results['documents'][0]:
-        return ["System Info: No specific trials found."]
-    return results['documents'][0]
-
-def log_interaction(user_input, ai_response, source_type, fairness_score=None):
-    collection, embedding_func = get_vector_store()
-    
-    doc_text = f"User: {user_input} | AI: {ai_response}"
-    
-    # Gestion sécurisée des scores si None
-    tox = str(fairness_score.get('toxicity_score', 0)) if fairness_score else "N/A"
-    comp = str(fairness_score.get('complexity_score', 0)) if fairness_score else "N/A"
-
-    meta = {
-        "type": "history",
-        "source": source_type,
-        "timestamp": str(datetime.datetime.now()),
-        "fairness_toxicity": tox,
-        "fairness_complexity": comp
-    }
-    
-    ids = [str(uuid.uuid4())]
-    embeddings = embedding_func.embed_documents([doc_text])
-    
-    collection.add(documents=[doc_text], embeddings=embeddings, metadatas=[meta], ids=ids)
-    print("Interaction logged successfully.")
-
-def get_history():
-    """Récupère tout l'historique"""
-    collection, _ = get_vector_store()
+    """
+    Searches ChromaDB for medical context/trials.
+    Used by the Medical Researcher Agent.
+    """
     try:
-        results = collection.get(where={"type": "history"})
-        history_items = []
-        if results['documents']:
-            for i in range(len(results['documents'])):
-                item = {
-                    "content": results['documents'][i],
-                    "meta": results['metadatas'][i]
-                }
-                history_items.append(item)
-        return history_items
+        collection, embedding_func = get_vector_store()
+        query_vec = embedding_func.embed_query(query_text)
+        
+        results = collection.query(
+            query_embeddings=[query_vec],
+            n_results=n_results,
+            # We search broadly for any medical info
+            # (Remove 'where' clause if your DB is mixed or you want generic search)
+            where={"type": "trial"} 
+        )
+        
+        if not results['documents'] or not results['documents'][0]:
+            return ["Info Système : Aucune étude clinique spécifique trouvée en local."]
+        
+        return results['documents'][0]
     except Exception as e:
-        print(f"Erreur historique: {e}")
-        return []
+        print(f"Vector Store Query Error: {e}")
+        return [f"Erreur de recherche base de données: {str(e)}"]
 
 def seed_db():
-    # (Mettre à jour seed_db pour inclure le champ metadata {"type": "trial"})
+    """
+    Populate the DB with dummy data if empty.
+    """
     collection, embedding_func = get_vector_store()
     if collection.count() == 0:
-        docs = ["NCT001: Phase 3 Trial...", "NCT002: Metformin...", "NCT003: CAR-T..."]
+        docs = [
+            "NCT001: Phase 3 Trial for Pembrolizumab in Stage IV NSCLC. Inclusion: Age > 18.",
+            "NCT002: Study of Metformin for Type 2 Diabetes prevention. Exclusion: Kidney failure.",
+            "NCT003: CAR-T Therapy for B-cell Lymphoma. Requirement: Prior chemo failure."
+        ]
         ids = ["1", "2", "3"]
-        metas = [{"type": "trial"}] * 3 # Ajout du type
+        metas = [{"type": "trial"}, {"type": "trial"}, {"type": "trial"}]
         embeddings = embedding_func.embed_documents(docs)
         collection.add(documents=docs, embeddings=embeddings, ids=ids, metadatas=metas)
+        print("Database seeded with mock trials.")

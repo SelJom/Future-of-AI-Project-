@@ -1,4 +1,4 @@
-# app/nodes.py
+import json
 from langchain_core.messages import SystemMessage, HumanMessage
 from app.llm import get_llm
 from app.vector_store import query_trials
@@ -7,80 +7,93 @@ from app.fairness import FairnessAuditor
 llm = get_llm()
 auditor = FairnessAuditor()
 
-# --- 1. Router Agent ---
-def route_query(state):
-    # (Code inchangé)
-    query = state["user_query"]
+# --- 1. SUPERVISOR (ORCHESTRATOR) ---
+def supervisor_node(state):
+    """
+    Decides which agent should handle the query.
+    """
+    # Get the last user message
+    messages = state.get("messages", [])
+    if messages:
+        query = messages[-1].content
+    else:
+        query = "Hello"
+
     prompt = f"""
-    Classify this intent: "{query}"
-    Reply EXACTLY one word:
-    - MATCHING (clinical trials, studies)
-    - LITERACY (definitions, side effects, explanations, chat)
-    """
-    response = llm.invoke([HumanMessage(content=prompt)])
-    decision = response.content.strip().upper()
-    if "MATCHING" in decision:
-        return {"next_step": "MATCHING"}
-    return {"next_step": "LITERACY"}
-
-# --- 2. Literacy Agents (MODIFIÉ POUR PERSONNALISATION) ---
-def simplifier_agent(state):
-    original = state["user_query"]
-    profile = state.get("user_profile", {})
+    You are the Medical AI Supervisor. Analyze the user query.
     
-    # Extraction des infos profil avec valeurs par défaut
-    age = profile.get("age", "adulte")
-    lang = profile.get("langue", "français")
-    etudes = profile.get("etudes", "niveau standard")
+    Query: "{query}"
     
-    # Prompt dynamique
-    system_prompt = f"""
-    You are a Health Literacy Expert. 
-    Your goal is to explain the medical text to a user with these characteristics:
-    - Age: {age} years old
-    - Native Language: {lang}
-    - Education Level: {etudes}
+    Decide the next step. Return JSON ONLY:
+    {{
+        "reasoning": "brief explanation",
+        "next_step": "AGENT_NAME"
+    }}
     
-    If the user speaks a language other than English, TRANSLATE your explanation to {lang}.
-    Be empathetic, clear, and use analogies suited to their education level.
+    Choices for AGENT_NAME:
+    - "MEDICAL_RESEARCHER": For specific medical facts, drug interactions, clinical trials, or serious medical advice.
+    - "GENERAL_CHAT": For greetings, simple explanations, or non-medical follow-ups.
     """
     
-    msg = [
-        SystemMessage(content=system_prompt),
-        HumanMessage(content=original)
-    ]
-    res = llm.invoke(msg)
-    return {"simplified_text": res.content}
+    try:
+        response = llm.invoke([HumanMessage(content=prompt)])
+        # Clean potential markdown wrapping
+        content = response.content.replace("```json", "").replace("```", "").strip()
+        decision = json.loads(content)
+        return {"next_step": decision.get("next_step", "GENERAL_CHAT")}
+    except Exception as e:
+        print(f"Supervisor Error: {e}")
+        return {"next_step": "GENERAL_CHAT"}
 
-def critic_agent(state):
-    # (Code inchangé pour la logique, mais on auditera le texte adapté)
-    simplified = state["simplified_text"]
-    metrics = auditor.audit_text(simplified)
+# --- 2. AGENTS ---
+
+def general_chat_agent(state):
+    lang = state.get("language", "Français")
+    complexity = state.get("complexity_prompt", "Standard")
+    messages = state["messages"]
     
-    critique_prompt = f"Check if this simplification lost medical meaning. Text: {simplified}. Reply 'OK' or explain the error."
-    critique = llm.invoke([HumanMessage(content=critique_prompt)]).content
+    sys_msg = f"""You are a helpful assistant.
+    IMPORTANT: You MUST answer in {lang}.
+    Complexity Level: {complexity}
+    """
+    
+    # We pass the full history to keep context
+    response = llm.invoke([SystemMessage(content=sys_msg)] + messages)
+    return {"messages": [response]} # Appends to history
+
+def medical_researcher_agent(state):
+    messages = state["messages"]
+    query = messages[-1].content
+    lang = state.get("language", "Français")
+    complexity = state.get("complexity_prompt", "Standard")
+    
+    # Real RAG Call
+    retrieved_docs = query_trials(query)
+    docs_str = "\n".join(retrieved_docs) if isinstance(retrieved_docs, list) else str(retrieved_docs)
+    
+    sys_msg = f"""You are a Medical Expert. 
+    Base your answer on the context provided below.
+    
+    CONTEXT:
+    {docs_str}
+    
+    INSTRUCTIONS:
+    1. Answer in {lang}.
+    2. Complexity Level: {complexity}.
+    3. Be precise and cite the context if relevant.
+    """
+    
+    response = llm.invoke([SystemMessage(content=sys_msg)] + messages)
+    return {"messages": [response]}
+
+# --- 3. CRITIC ---
+def fairness_critic_node(state):
+    messages = state["messages"]
+    last_msg = messages[-1]
+    
+    # Calculate metrics
+    metrics = auditor.audit_text(last_msg.content)
     
     return {
-        "fairness_metrics": metrics,
-        "literacy_critique": critique,
-        "fairness_flag": metrics['toxicity_score'] > 5
+        "fairness_metrics": metrics
     }
-
-# --- 3. Matching Agents (MODIFIÉ) ---
-def retrieval_agent(state):
-    # (Code inchangé)
-    docs = query_trials(state["user_query"])
-    return {"retrieved_trials": docs}
-
-def matcher_agent(state):
-    trials = "\n".join(state["retrieved_trials"])
-    query = state["user_query"]
-    profile = state.get("user_profile", {})
-    lang = profile.get("langue", "français")
-
-    msg = [
-        SystemMessage(content=f"You are a Clinical Research Coordinator. Analyze the patient profile against the trials. Answer in {lang}."),
-        HumanMessage(content=f"Patient: {query}\n\nAvailable Trials:\n{trials}")
-    ]
-    res = llm.invoke(msg)
-    return {"final_recommendation": res.content}

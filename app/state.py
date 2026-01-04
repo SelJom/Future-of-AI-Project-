@@ -7,34 +7,21 @@ class MedicalAgentState(TypedDict):
     """
     Shared state for the multi-agent system.
     """
+    # Chat History
     messages: Annotated[List[BaseMessage], operator.add]
     
-    # --- USER PROFILE ---
-    user_age: int
-    literacy_level: str  # e.g., "Enfant", "Adulte", "Expert"
+    # Orchestration
+    next_step: str  # 'general_chat', 'medical_rag', 'fairness_review', etc.
     
-    # Input
+    # User Context (Persistent)
+    session_id: str
+    language: str
+    complexity_prompt: str
+    
+    # Content
     user_query: str
+    retrieved_docs: Optional[str]
+    draft_response: Optional[str]
     
-    # Context from Vision
-    # Stores the content of the last scanned document for follow-up questions
-    active_document_context: Optional[str] 
-    
-    
-    # Literacy Track
-    
-    # NOUVEAU : Profil utilisateur pour la personnalisation
-    user_profile: Dict[str, str] 
-
-    simplified_text: Optional[str]
-    literacy_critique: Optional[str]
-    retrieved_trials: List[str]
-    final_recommendation: Optional[str]
-    
-    # Fairness
+    # Metrics
     fairness_metrics: Dict[str, float]
-    fairness_flag: bool
-    
-    # Routing
-
-    next_step: str

@@ -1,39 +1,38 @@
 from langgraph.graph import StateGraph, END
 from app.state import MedicalAgentState
 from app.nodes import (
-    route_query, simplifier_agent, critic_agent, 
-    retrieval_agent, matcher_agent
+    supervisor_node, 
+    general_chat_agent, 
+    medical_researcher_agent, 
+    fairness_critic_node
 )
 
 def build_graph():
     workflow = StateGraph(MedicalAgentState)
 
     # Add Nodes
-    workflow.add_node("router", route_query)
-    workflow.add_node("simplifier", simplifier_agent)
-    workflow.add_node("critic", critic_agent)
-    workflow.add_node("retriever", retrieval_agent)
-    workflow.add_node("matcher", matcher_agent)
+    workflow.add_node("supervisor", supervisor_node)
+    workflow.add_node("general_chat", general_chat_agent)
+    workflow.add_node("medical_researcher", medical_researcher_agent)
+    workflow.add_node("critic", fairness_critic_node)
 
-    # Set Entry
-    workflow.set_entry_point("router")
+    # Entry Point
+    workflow.set_entry_point("supervisor")
 
-    # Conditional Logic
+    # Conditional Logic (The Orchestration)
     workflow.add_conditional_edges(
-        "router",
-        lambda x: "retriever" if x["next_step"] == "MATCHING" else "simplifier",
+        "supervisor",
+        lambda x: x["next_step"].lower(),
         {
-            "retriever": "retriever",
-            "simplifier": "simplifier"
+            "general_chat": "general_chat",
+            "medical_researcher": "medical_researcher"
         }
     )
 
-    # Edges
-    workflow.add_edge("simplifier", "critic")
+    # All agents go to critic for final review
+    workflow.add_edge("general_chat", "critic")
+    workflow.add_edge("medical_researcher", "critic")
     workflow.add_edge("critic", END)
-    
-    workflow.add_edge("retriever", "matcher")
-    workflow.add_edge("matcher", END)
 
     return workflow.compile()
 
