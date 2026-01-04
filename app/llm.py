@@ -13,7 +13,8 @@ def get_llm(temperature=0.1):
             api_key=Config.LLM_API_KEY,
             model=Config.LLM_MODEL,
             temperature=temperature,
-            max_retries=2
+            max_retries=2,
+            streaming=True
         )
         return llm
     except Exception as e:
