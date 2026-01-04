@@ -1,3 +1,4 @@
+# app/state.py
 from typing import TypedDict, List, Optional, Dict, Annotated
 import operator
 from langchain_core.messages import BaseMessage
@@ -19,11 +20,14 @@ class MedicalAgentState(TypedDict):
     # Stores the content of the last scanned document for follow-up questions
     active_document_context: Optional[str] 
     
+    
     # Literacy Track
+    
+    # NOUVEAU : Profil utilisateur pour la personnalisation
+    user_profile: Dict[str, str] 
+
     simplified_text: Optional[str]
     literacy_critique: Optional[str]
-    
-    # Matching Track
     retrieved_trials: List[str]
     final_recommendation: Optional[str]
     
@@ -32,4 +36,5 @@ class MedicalAgentState(TypedDict):
     fairness_flag: bool
     
     # Routing
+
     next_step: str

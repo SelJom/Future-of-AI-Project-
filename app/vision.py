@@ -4,7 +4,7 @@ import io
 import fitz  
 from app.config import Config
 
-def analyze_prescription(image_bytes):
+def analyze_prescription_stream(image_bytes):
     """
     Sends the image to the local AI to extract medication data.
     """
@@ -30,54 +30,57 @@ def analyze_prescription(image_bytes):
     """
     
     try:
-        response = ollama.chat(
+        # On active le mode 'stream' d'Ollama
+        stream = ollama.chat(
             model=Config.VISION_MODEL_NAME,
             messages=[{
                 'role': 'user',
                 'content': prompt,
                 'images': [image_bytes]
-            }]
+            }],
+            stream=True 
         )
-        return response['message']['content']
+        
+        for chunk in stream:
+            yield chunk['message']['content']
+            
     except Exception as e:
-        return f"Error Vision AI: {str(e)}"
+        yield f"Error: {str(e)}"
 
+# --- FONCTION 2 : L'Originale (Pour la compatibilité) ---
+def analyze_prescription(image_bytes):
+    """
+    Fonction classique qui attend la fin et renvoie tout le texte d'un coup.
+    Elle utilise la fonction stream ci-dessus pour éviter de dupliquer le code.
+    """
+    full_text = ""
+    # On consomme tout le stream pour reconstituer la phrase
+    for chunk in analyze_prescription_stream(image_bytes):
+        full_text += chunk
+    return full_text
+
+# --- FONCTION 3 : Traitement des Fichiers (Inchangée) ---
 def process_file_to_images(uploaded_file):
-    """
-    Converts uploaded PDF or Image files into Bytes for the AI.
-    Uses PyMuPDF (fitz) for PDFs to ensure scalability.
-    """
+    # (Copiez-collez votre code existant pour process_file_to_images ici)
+    # ... le code avec fitz et PIL ...
+    # Je remets le début pour rappel :
     processed_images = []
-    
     try:
-        # A. HANDLE PDF (Portable Method)
         if "pdf" in uploaded_file.type:
-            # Read the PDF stream directly from memory
             with fitz.open(stream=uploaded_file.read(), filetype="pdf") as doc:
                 for page_num, page in enumerate(doc):
-                    # Render page to image (dpi=200 is optimal for speed/accuracy)
                     pix = page.get_pixmap(dpi=200)
-                    
-                    # Convert to PIL Image
                     img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
-                    
-                    # Convert to Bytes for Ollama
                     b = io.BytesIO()
                     img.save(b, format='JPEG')
                     processed_images.append((f"Page {page_num + 1}", img, b.getvalue()))
-
-        # B. HANDLE STANDARD IMAGES (JPG/PNG)
         else:
             image = Image.open(uploaded_file)
-            # Fix transparency issues if present
-            if image.mode in ("RGBA", "P"): 
-                image = image.convert("RGB")
-                
+            if image.mode in ("RGBA", "P"): image = image.convert("RGB")
             b = io.BytesIO()
             image.save(b, format='JPEG')
             processed_images.append(("Image importée", image, b.getvalue()))
             
         return processed_images, None
-
     except Exception as e:
-        return None, f"Erreur de lecture du fichier : {str(e)}"
+        return None, f"Erreur fichier : {str(e)}"
