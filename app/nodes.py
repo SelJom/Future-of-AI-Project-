@@ -202,17 +202,6 @@ def translator_node(state):
     2. **START IMMEDIATELY**: Start the first sentence directly with the medical explanation.
     3. Tone: Warm, clear, direct. Use metaphors if helpful.
     
-    4. **DIAGRAMS**: 
-       Assess if the explanation would be clearer with a diagram. 
-       If yes, insert a tag like `
-
-[Image of X]
-` (e.g., `
-
-[Image of digestive system]
-`). 
-       Only add tags if they provide instructive value. Place them immediately after the relevant text.
-    
     Draft response:
     """
     response = llm_creative.invoke([SystemMessage(content=prompt)])

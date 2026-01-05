@@ -203,13 +203,14 @@ async def upload_file(
 
         # --- KEYWORD PROMPT ---
         query = (
-            f"You are a medical assistant for a {age} year old patient. Language: {language}.\n"
+             f"You are a medical assistant for a {age} year old patient. Language: {language}.\n"
             f"CONTEXT: Raw Text: \"{full_text}\". Structured Data: {json.dumps(meds_data, ensure_ascii=False) if meds_data else 'None'}.\n\n"
-            f"TASK 1: Write a clear explanation for the patient about this document. "
-            f"Explain the purpose, usage, and precautions.\n\n"
+            f"TASK 1: Write a clear, reassuring, and educational explanation for the patient about this document. "
+            f"Explain the purpose, usage, and precautions. Do NOT include technical details and adapt your structure based on the age of the person.\n\n"
             f"TASK 2: Extract key medical entities into a valid JSON object at the very end.\n"
-            f"Categories: 'Médicament', 'Dosage', 'Fréquence', 'Symptôme', 'Type'.\n"
-            f"If multiple exist, format as 'Item1, Item2'.\n"
+            f"Categories (Use {language}): 'Médicament', 'Dosage', 'Fréquence', 'Symptôme', 'Type'. or other categories you highlight and think the user should know\n"
+            f"If multiple values exist, combine them (e.g. 'Doliprane, Advil').\n\n"
+            f"NO INTRODUCTIONS: Do NOT say Hello, I am Doctor X, Here is a response, or As an AI, directly start with the explanation content\n"
             f"REQUIRED OUTPUT FORMAT:\n"
             f"[Your Explanation Here]\n"
             f"||DATA||\n"

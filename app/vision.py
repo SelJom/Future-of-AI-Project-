@@ -1,7 +1,7 @@
 import ollama
 from PIL import Image
 import io
-import fitz  # PyMuPDF
+import fitz  
 from app.config import Config
 
 def analyze_prescription_stream(image_bytes):
@@ -14,7 +14,7 @@ def analyze_prescription_stream(image_bytes):
     Task: Extract the following details strictly in JSON format.
     1. Medication Name ("nom")
     2. Dosage ("dosage") - e.g. 1000mg, 500mg
-    3. Instructions ("posologie") - e.g. 1 morning and evening
+    3. Instructions ("posologie") - e.g. 1 morning and evening, or 1 every 4h with a max of 3 per day...
     
     Output Format (JSON ONLY):
     {
@@ -22,7 +22,7 @@ def analyze_prescription_stream(image_bytes):
         {
           "nom": "Doliprane", 
           "dosage": "1000mg", 
-          "posologie": "1 comprimé en cas de fièvre"
+          "posologie": "1 comprimé en cas de douleur"
         }
       ]
     }
@@ -52,7 +52,7 @@ def analyze_prescription(image_bytes):
         full_text += chunk
     return full_text
 
-# --- CORRECTED FUNCTION ---
+
 def process_file_to_images(file_bytes, mime_type):
     """
     Processes raw file bytes into images.
@@ -67,7 +67,6 @@ def process_file_to_images(file_bytes, mime_type):
     try:
         # Handle PDF
         if "pdf" in mime_type.lower():
-            # fitz.open expects bytes if stream is provided, no await needed here as we pass bytes
             with fitz.open(stream=file_bytes, filetype="pdf") as doc:
                 for page_num, page in enumerate(doc):
                     pix = page.get_pixmap(dpi=200)
