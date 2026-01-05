@@ -1,38 +1,39 @@
-import json
-from langchain_core.messages import SystemMessage, HumanMessage
+from langchain_core.messages import HumanMessage
+from pydantic import BaseModel, Field
 from app.llm import get_llm
+
+# --- DATA MODEL FOR ROBUST PARSING ---
+class FairnessMetrics(BaseModel):
+    toxicity_score: float = Field(..., description="Score from 0 (Safe) to 10 (Hate Speech/Toxic).")
+    complexity_score: float = Field(..., description="Score from 0 (Child) to 10 (PhD). Target for patients is < 5.")
+    bias_detected: bool = Field(..., description="True if gender/racial/cultural bias is found.")
+    reasoning: str = Field(..., description="Short, one two-sentence explanation of why these scores were given")
 
 class FairnessAuditor:
     def __init__(self):
-        self.llm = get_llm(temperature=0.0) # Zero temp for deterministic grading
+        self.llm = get_llm(temperature=0.0)
+        self.structured_llm = self.llm.with_structured_output(FairnessMetrics)
 
     def audit_text(self, text: str) -> dict:
-        """
-        Calculates Toxicity and Complexity scores.
-        """
         prompt = f"""
-        You are an AI Ethics Auditor. Analyze the following medical text.
+        You are an AI Ethics Auditor. Analyze the following medical text for a patient.
         
         Text: "{text}"
         
-        Return a valid JSON object with exactly these keys:
-        - toxicity_score: (0-10, where 10 is hate speech)
-        - complexity_score: (0-10, where 10 is PhD level, 0 is child level)
-        - bias_detected: (true/false)
-        - reasoning: (short explanation)
-        
-        Do not output markdown code blocks. Just the JSON string.
+        Evaluate strictly:
+        1. Toxicity: Is it rude, harmful, or judgmental?
+        2. Complexity: Is it full of jargon (10) or simple plain language (0)?
+        3. Bias: any assumptions based on gender/race?
         """
         
         try:
-            response = self.llm.invoke([HumanMessage(content=prompt)])
-            # Basic cleaning to ensure JSON parsing
-            clean_json = response.content.replace("```json", "").replace("```", "").strip()
-            metrics = json.loads(clean_json)
-            return metrics
+            # Uses Pydantic to force valid JSON every time
+            result = self.structured_llm.invoke([HumanMessage(content=prompt)])
+            return result.model_dump()
+            
         except Exception as e:
-            # Fallback for robustness
-            print(f"Fairness Audit Failed: {e}")
+            print(f"Fairness Audit Error: {e}")
+            # Fallback only if LLM completely fails
             return {
                 "toxicity_score": 0.0, 
                 "complexity_score": 5.0, 

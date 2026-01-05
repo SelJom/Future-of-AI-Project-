@@ -1,31 +1,29 @@
 import json
 from langchain_core.messages import SystemMessage, HumanMessage
-from langchain_core.prompts import ChatPromptTemplate
 from app.llm import get_llm
 from app.vector_store import query_trials
 
 llm = get_llm()
 
-# --- 1. SUPERVISOR (Le Chef d'Orchestre) ---
+# --- 1. SUPERVISOR ---
 def supervisor_node(state):
     """
-    Analyse l'intention. Si c'est médical, on lance la chaîne complexe.
-    Sinon, on répond simplement.
+    Analyzes intent. Routes to Medical Chain or General Chat.
     """
     messages = state.get("messages", [])
     query = messages[-1].content if messages else ""
     
     system_prompt = """
-    Tu es le Superviseur d'une IA médicale. Analyse la demande de l'utilisateur.
+    You are the Supervisor of a Medical AI. Analyze the user's request.
     
-    SI la demande concerne :
-    - Une maladie, un symptôme, un médicament.
-    - Une explication d'ordonnance (OCR context).
-    - Une question de santé complexe.
-    -> Réponds JSON: {"next_step": "MEDICAL_CHAIN"}
+    IF the request concerns:
+    - A disease, symptom, or medication.
+    - A prescription explanation (OCR context).
+    - A complex health question.
+    -> Respond JSON: {"next_step": "MEDICAL_CHAIN"}
     
-    SINON (Salutations, blagues, questions hors sujet) :
-    -> Réponds JSON: {"next_step": "GENERAL_CHAT"}
+    OTHERWISE (Greetings, jokes, off-topic):
+    -> Respond JSON: {"next_step": "GENERAL_CHAT"}
     """
     
     try:
@@ -35,100 +33,118 @@ def supervisor_node(state):
     except:
         return {"next_step": "GENERAL_CHAT", "iteration_count": 0}
 
-# --- 2. MEDICAL EXPERT (L'Analyste Factuel) ---
+# --- 2. MEDICAL EXPERT (IMPROVED: General Knowledge Fallback) ---
 def medical_expert_node(state):
     """
-    Récupère la vérité scientifique (via RAG ou connaissances brutes).
-    Ne simplifie PAS. Cherche l'exactitude.
+    Retrieves scientific truth. If RAG is empty, uses internal high-level knowledge.
     """
     query = state["messages"][-1].content
-    # Simulation RAG (ou votre vraie fonction query_trials)
-    retrieved = query_trials(query) 
-    facts = f"Documents RAG: {retrieved}\n\nConnaissances LLM brutes sur: {query}"
     
-    return {"medical_facts": facts}
+    # 1. Try RAG
+    retrieved = query_trials(query)
+    
+    # 2. Call LLM to synthesize facts (RAG + General Knowledge)
+    prompt = f"""
+    You are an expert medical knowledge base.
+    
+    User Query: "{query}"
+    Found Documents (RAG): {retrieved}
+    
+    YOUR MISSION:
+    List the relevant medical facts to answer (Symptoms, Standard Treatments, Precautions).
+    - IF the RAG contains the info, prioritize it.
+    - IF the RAG is empty or insufficient, USE YOUR GENERAL HIGH-LEVEL MEDICAL KNOWLEDGE (Gold Standard).
+    
+    Do not draft the final response yet, just provide the raw, accurate facts.
+    """
+    
+    facts_response = llm.invoke([HumanMessage(content=prompt)])
+    return {"medical_facts": facts_response.content}
 
-# --- 3. PROFILER (L'Anthropologue) ---
+# --- 3. PROFILER ---
 def profiler_node(state):
     """
-    Transforme les données démographiques en stratégie de communication.
+    Defines communication strategy based on demographics.
     """
     profile = state.get("user_profile", {})
     age = profile.get("age", 30)
-    lang = profile.get("language", "Français")
-    level = profile.get("literacy_level", "Moyen")
-    temp = profile.get("temperature", 0.)
+    lang = profile.get("language", "English")
+    level = profile.get("literacy_level", "Medium")
     
     prompt = f"""
-    Tu es un expert en communication interculturelle et santé publique (Health Literacy).
+    You are an expert in Health Literacy and Intercultural Communication.
     
-    Patient: {age} ans. Langue: {lang}. Niveau lecture: {level}.
+    Patient: {age} years old. Language: {lang}. Literacy Level: {level}.
     
-    Définis une stratégie de rédaction en 3 points :
-    1. Ton (Empathique, Direct, Formel ?)
-    2. Métaphores culturelles adaptées (ex: mécanique pour un ingénieur, nature pour contexte rural, etc. - INVENTE selon le profil).
-    3. Tabous à éviter ou précautions de langage.
+    Define a drafting strategy in 3 points:
+    1. Tone (Empathetic, Direct, Formal?)
+    2. Cultural Metaphors (e.g., mechanics for an engineer, nature for rural context - INVENT based on profile).
+    3. Taboos to avoid or language precautions.
     
-    Réponds uniquement avec la stratégie.
+    Respond ONLY with the strategy text.
     """
     
     strategy = llm.invoke([HumanMessage(content=prompt)]).content
     return {"cultural_strategy": strategy}
 
-# --- 4. TRANSLATOR (Le Pédagogue) ---
+# --- 4. TRANSLATOR (IMPROVED: Natural Tone) ---
 def translator_node(state):
     """
-    Rédige l'explication en combinant Faits + Stratégie + (Optionnel) Critiques précédentes.
+    Drafts the final explanation.
     """
     facts = state["medical_facts"]
     strategy = state["cultural_strategy"]
-    feedback = state.get("critique_feedback", "Aucune critique pour l'instant.")
-    messages = state["messages"]
+    feedback = state.get("critique_feedback", "No critique so far.")
     
+    # We force a direct conversational tone
     prompt = f"""
-    Tu es le 'Health Literacy Translator'. 
+    You are an empathetic and clear General Practitioner (GP). You are in a direct consultation.
     
-    TA MISSION : Rédiger une réponse pour le patient.
-    
-    SOURCES MÉDICALES (Ne rien inventer) :
+    MEDICAL FACTS TO CONVEY:
     {facts}
     
-    STRATÉGIE DE COMMUNICATION :
+    COMMUNICATION STRATEGY (Tone/Adaptation):
     {strategy}
     
-    FEEDBACK DU GUARDIAN (Corrections à appliquer si nécessaire) :
+    PREVIOUS CORRECTIONS (If applicable):
     {feedback}
     
-    Rédige la réponse maintenant (en {state['user_profile'].get('language')}).
+    DRAFTING INSTRUCTIONS:
+    1. NEVER start with "I understand", "Here is the answer", or "Based on the facts".
+    2. Answer directly like a human (e.g., "For a sore throat, the most effective thing is...").
+    3. Use the strategy defined above.
+    4. Be concise but complete.
+    
+    Draft the response now in {state['user_profile'].get('language')}.
     """
     
-    # On garde l'historique des messages pour le contexte
-    response = llm.invoke([SystemMessage(content=prompt)] + messages[-2:]) # Contexte court
+    # We only send the system prompt to prevent history from polluting the style
+    response = llm.invoke([SystemMessage(content=prompt)])
     return {"draft_response": response.content}
 
-# --- 5. GUARDIAN (Le Superviseur de Sécurité - Boucle de Rétroaction) ---
+# --- 5. GUARDIAN ---
 def guardian_node(state):
     """
-    Vérifie si la simplification n'a pas déformé la vérité médicale ou omis un danger.
+    Safety check for hallucinations or dangerous advice.
     """
     facts = state["medical_facts"]
     draft = state["draft_response"]
     
     prompt = f"""
-    Tu es le Docteur Superviseur (Safety Guardian).
+    You are the Safety Guardian Doctor.
     
-    1. FAITS MÉDICAUX ORIGINAUX : {facts}
-    2. BROUILLON SIMPLIFIÉ PROPOSÉ : {draft}
+    1. ORIGINAL MEDICAL FACTS: {facts}
+    2. PROPOSED SIMPLIFIED DRAFT: {draft}
     
-    TÂCHE : Détecte les erreurs graves.
-    - Hallucination (Le brouillon dit un truc non présent dans les faits ?)
-    - Omission dangereuse (Un effet secondaire grave a disparu ?)
-    - Infantilisation excessive ou ton inapproprié ?
+    TASK: Detect serious errors.
+    - Hallucination (Does the draft say something not present in general medical facts?)
+    - Dangerous Omission (Did a serious side effect disappear?)
+    - Excessive Infantilization or inappropriate tone?
     
-    Réponds JSON :
+    Respond JSON:
     {{
-        "status": "APPROVED" ou "REJECTED",
-        "feedback": "Si REJECTED, explique précisément quoi corriger. Si APPROVED, mets 'RAS'."
+        "status": "APPROVED" or "REJECTED",
+        "feedback": "If REJECTED, explain precisely what to fix. If APPROVED, put 'N/A'."
     }}
     """
     
@@ -137,41 +153,16 @@ def guardian_node(state):
         analysis = json.loads(resp.content.replace("```json", "").replace("```", "").strip())
         return {
             "safety_status": analysis.get("status", "REJECTED"),
-            "critique_feedback": analysis.get("feedback", "Erreur parsing"),
+            "critique_feedback": analysis.get("feedback", "Parsing error"),
             "iteration_count": state["iteration_count"] + 1
         }
     except:
-        # En cas de doute, on rejette
-        return {"safety_status": "REJECTED", "critique_feedback": "Format JSON invalide, réessaie.", "iteration_count": state["iteration_count"] + 1}
+        return {"safety_status": "REJECTED", "critique_feedback": "Invalid JSON format.", "iteration_count": state["iteration_count"] + 1}
 
-# --- 6. VISUALIZER (Le Générateur d'Image Mentale) ---
+# --- 6. VISUALIZER (EMPTY / UNUSED) ---
 def visualizer_node(state):
-    """
-    Génère un prompt pour une image qui aide à comprendre.
-    """
-    draft = state["draft_response"]
-    
-    prompt = f"""
-    Analyse cette explication médicale : "{draft}"
-    
-    Crée une description pour une image éducative (infographie ou illustration simple) qui aiderait à comprendre le concept clé.
-    Pas de texte dans l'image, juste du visuel.
-    
-    Exemple : "Un dessin schématique de poumons agissant comme des éponges..."
-    
-    Réponds avec le prompt de l'image uniquement.
-    """
-    
-    vis_prompt = llm.invoke([HumanMessage(content=prompt)]).content
-    
-    # Ici, nous appendons finalement la réponse au fil de discussion
-    final_content = f"{draft}\n\n---\n*🎨 Idée visuelle suggérée par l'IA : {vis_prompt}*"
-    
-    return {
-        "visual_prompt": vis_prompt,
-        "messages": [SystemMessage(content=final_content)] # C'est ici qu'on finalise
-    }
+    return {}
 
-# --- AGENT SIMPLE (Pour le "Bonjour") ---
+# --- GENERAL CHAT ---
 def general_chat_node(state):
     return {"messages": [llm.invoke(state["messages"])]}

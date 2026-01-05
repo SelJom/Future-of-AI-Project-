@@ -6,16 +6,11 @@ from app.nodes import (
     profiler_node,
     translator_node,
     guardian_node,
-    visualizer_node,
     general_chat_node
+    # visualizer_node # REMOVED
 )
 
 def should_retry(state):
-    """
-    Logique de boucle :
-    - Si rejeté ET pas trop d'essais -> Retourne au Translator
-    - Sinon -> Passe à la suite (Visualizer)
-    """
     status = state.get("safety_status", "APPROVED")
     count = state.get("iteration_count", 0)
     
@@ -26,47 +21,46 @@ def should_retry(state):
 def build_graph():
     workflow = StateGraph(MedicalAgentState)
 
-    # --- Ajout des Noeuds ---
+    # --- Add Nodes ---
     workflow.add_node("supervisor", supervisor_node)
     workflow.add_node("general_chat", general_chat_node)
     
-    # La Chaîne Médicale
+    # Medical Chain
     workflow.add_node("medical_expert", medical_expert_node)
     workflow.add_node("profiler", profiler_node)
     workflow.add_node("translator", translator_node)
     workflow.add_node("guardian", guardian_node)
-    workflow.add_node("visualizer", visualizer_node)
+    # workflow.add_node("visualizer", visualizer_node) # REMOVED
 
-    # --- Définition des Entrées/Sorties ---
+    # --- Define Edges ---
     workflow.set_entry_point("supervisor")
 
-    # 1. Décision Superviseur
+    # 1. Supervisor Decision
     workflow.add_conditional_edges(
         "supervisor",
         lambda x: x["next_step"],
         {
             "GENERAL_CHAT": "general_chat",
-            "MEDICAL_CHAIN": "medical_expert" # On commence par les faits
+            "MEDICAL_CHAIN": "medical_expert"
         }
     )
 
-    # 2. Chaîne Linéaire (Facts -> Profile -> Translate -> Critique)
+    # 2. Linear Chain
     workflow.add_edge("medical_expert", "profiler")
     workflow.add_edge("profiler", "translator")
     workflow.add_edge("translator", "guardian")
 
-    # 3. Boucle Conditionnelle (Guardian -> Translator OU Visualizer)
+    # 3. Conditional Loop (Guardian -> Translator OR END)
     workflow.add_conditional_edges(
         "guardian",
         should_retry,
         {
-            "retry": "translator",   # Retour à la rédaction avec feedback
-            "finalize": "visualizer" # Validé, on génère l'image
+            "retry": "translator",   # Return to drafting with feedback
+            "finalize": END          # MODIFIED: Goes straight to END (no image generation)
         }
     )
 
-    # 4. Fin
-    workflow.add_edge("visualizer", END)
+    # 4. End
     workflow.add_edge("general_chat", END)
 
     return workflow.compile()

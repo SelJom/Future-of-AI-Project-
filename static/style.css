@@ -275,3 +275,91 @@ details[open] summary::after { transform: rotate(180deg); }
     margin-right: 10px;
 }
 @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+
+/* --- B02: FAIRNESS SCORECARD --- */
+.fairness-card {
+    align-self: flex-start;
+    margin-left: 10px;
+    margin-bottom: 20px;
+    background: rgba(30, 41, 59, 0.5); /* Semi-transparent bot bg */
+    border: 1px solid #334155;
+    border-radius: 8px;
+    padding: 10px;
+    width: 200px;
+    font-size: 11px;
+    animation: fadeIn 0.5s ease;
+}
+
+.fairness-header {
+    color: #94a3b8;
+    font-weight: 700;
+    margin-bottom: 8px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.fairness-grid {
+    display: flex;
+    justify-content: space-between;
+}
+
+.metric {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.metric span:first-child {
+    color: #64748b;
+    margin-bottom: 2px;
+}
+
+.metric span:last-child {
+    color: #e2e8f0;
+    font-weight: 600;
+    font-family: monospace;
+    font-size: 13px;
+}
+
+
+.fairness-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+}
+
+.fairness-help-icon {
+    color: #64748b;
+    cursor: pointer;
+    font-size: 14px;
+    transition: color 0.2s;
+}
+
+.fairness-help-icon:hover {
+    color: #3b82f6; /* Blue hover */
+}
+
+.fairness-explanation {
+    background: #0f172a;
+    border: 1px solid #334155;
+    padding: 10px;
+    border-radius: 6px;
+    margin: 10px 0;
+    font-size: 12px;
+    color: #cbd5e1;
+    line-height: 1.5;
+}
+
+.fairness-explanation ul {
+    padding-left: 20px;
+    margin-top: 5px;
+}
+
+.fairness-explanation li {
+    margin-bottom: 5px;
+}

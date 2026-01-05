@@ -1,9 +1,7 @@
 let currentSessionId = null;
 
 window.onload = async () => {
-    // 1. Get History
     await loadHistory();
-    // 2. Start a new session invisibly
     startNewSession();
 };
 
@@ -17,46 +15,63 @@ function switchTab(tabName) {
 }
 
 async function startNewSession() {
-    const res = await fetch('/api/new_session', { method: 'POST' });
-    const data = await res.json();
-    currentSessionId = data.session_id;
+    try {
+        const res = await fetch('/api/new_session', { method: 'POST' });
+        const data = await res.json();
+        currentSessionId = data.session_id;
+        
+        const chatBox = document.getElementById('chatBox');
+        chatBox.innerHTML = `
+            <div class="empty-state">
+                <div class="empty-icon">👋</div>
+                <h3>Bonjour !</h3>
+                <p>Je suis votre assistant santé.</p>
+            </div>`;
+        
+        document.querySelectorAll('.history-item').forEach(el => el.classList.remove('active'));
+        switchTab('chat');
+        resetScanView();
+    } catch (e) {
+        console.error("Session creation failed", e);
+    }
+}
+
+function resetScanView() {
+    const fileInput = document.getElementById('fileInput');
+    if(fileInput) fileInput.value = "";
     
-    // Clear Chat UI
-    const chatBox = document.getElementById('chatBox');
-    chatBox.innerHTML = `
-        <div class="empty-state">
-            <div class="empty-icon">👋</div>
-            <h3>Bonjour !</h3>
-            <p>Je suis votre assistant santé.</p>
-        </div>`;
-    
-    // Deselect history items
-    document.querySelectorAll('.history-item').forEach(el => el.classList.remove('active'));
-    switchTab('chat');
+    document.getElementById('fileNameDisplay').classList.add('hidden');
+    document.getElementById('analyzeBtn').classList.add('hidden');
+    document.getElementById('scanResultSection').classList.add('hidden');
+    document.getElementById('scanLoader').classList.add('hidden');
+    document.getElementById('uploadZone').classList.remove('hidden');
 }
 
 async function loadHistory() {
-    const res = await fetch('/api/history');
-    const sessions = await res.json();
-    const list = document.getElementById('historyList');
-    list.innerHTML = '';
-    
-    sessions.forEach(sess => {
-        const item = document.createElement('div');
-        item.className = `history-item ${sess.id === currentSessionId ? 'active' : ''}`;
-        item.onclick = () => loadChat(sess.id);
-        item.innerHTML = `
-            <span>${sess.title}</span>
-            <i class="fas fa-trash delete-icon" onclick="deleteSession('${sess.id}', event)"></i>
-        `;
-        list.appendChild(item);
-    });
+    try {
+        const res = await fetch('/api/history');
+        const sessions = await res.json();
+        const list = document.getElementById('historyList');
+        list.innerHTML = '';
+        
+        sessions.forEach(sess => {
+            const item = document.createElement('div');
+            item.className = `history-item ${sess.id === currentSessionId ? 'active' : ''}`;
+            item.onclick = () => loadChat(sess.id);
+            item.innerHTML = `
+                <span>${sess.title}</span>
+                <i class="fas fa-trash delete-icon" onclick="deleteSession('${sess.id}', event)"></i>
+            `;
+            list.appendChild(item);
+        });
 
-    // Smart "Delete All" Button
-    if (sessions.length > 0) {
-        const btn = document.createElement('div');
-        btn.innerHTML = `<button class="delete-all-btn" onclick="deleteAllSessions()"><i class="fas fa-trash-alt"></i> Tout supprimer</button>`;
-        list.appendChild(btn);
+        if (sessions.length > 0) {
+            const btn = document.createElement('div');
+            btn.innerHTML = `<button class="delete-all-btn" onclick="deleteAllSessions()"><i class="fas fa-trash-alt"></i> Tout supprimer</button>`;
+            list.appendChild(btn);
+        }
+    } catch(e) {
+        console.error("History load failed", e);
     }
 }
 
@@ -79,14 +94,11 @@ async function sendMessage() {
     const text = input.value.trim();
     if (!text) return;
     
-    // 1. INSTANT UPDATE: Add message to UI immediately
     input.value = ''; 
     const empty = document.querySelector('.empty-state');
     if(empty) empty.remove();
     
     addMessage(text, 'user', false); 
-    
-    // 2. Add loading indicator
     const thinkingId = addThinking();
     scrollToBottom();
     
@@ -104,42 +116,50 @@ async function sendMessage() {
         });
         const data = await res.json();
         
-        // 3. Replace loading with response
         document.getElementById(thinkingId).remove();
         addMessage(data.response, 'assistant', true); 
+        
+        if (data.fairness_metrics) {
+            addFairnessScorecard(data.fairness_metrics);
+        }
         
         loadHistory(); 
         
     } catch (e) {
-        document.getElementById(thinkingId).innerText = "Erreur de connexion.";
+        if(document.getElementById(thinkingId)) document.getElementById(thinkingId).innerText = "Erreur de connexion.";
     }
 }
 
-// --- TYPEWRITER ---
+// --- CORE FUNCTION: Render Message with Markdown ---
 function addMessage(text, role, useTypewriter = false) {
     const box = document.getElementById('chatBox');
     const div = document.createElement('div');
     div.className = `message ${role === 'user' ? 'user' : 'bot'}`;
-    
+    box.appendChild(div);
+
     if (useTypewriter && role === 'bot') {
-        box.appendChild(div);
         let i = 0;
-        div.innerHTML = "";
-        const speed = 10;
+        div.textContent = ""; 
+        const speed = 5; 
         
         function type() {
             if (i < text.length) {
-                const char = text.charAt(i);
-                div.innerHTML += (char === '\n' ? '<br>' : char);
+                div.textContent += text.charAt(i);
                 i++;
                 box.scrollTop = box.scrollHeight; 
                 setTimeout(type, speed);
+            } else {
+                div.innerHTML = marked.parse(text);
+                box.scrollTop = box.scrollHeight;
             }
         }
         type();
     } else {
-        div.innerHTML = text.replace(/\n/g, '<br>');
-        box.appendChild(div);
+        if (role === 'user') {
+            div.textContent = text; 
+        } else {
+            div.innerHTML = marked.parse(text); 
+        }
     }
     scrollToBottom();
 }
@@ -154,8 +174,65 @@ function addThinking() {
     return div.id;
 }
 
-// --- SCANNER ---
+// --- UPDATED FAIRNESS CARD ---
+function addFairnessScorecard(metrics) {
+    const box = document.getElementById('chatBox');
+    const div = document.createElement('div');
+    div.className = 'fairness-card';
+    
+    const complexityColor = metrics.complexity_score > 7 ? '#ef4444' : (metrics.complexity_score > 4 ? '#f97316' : '#22c55e');
+    const toxicityColor = metrics.toxicity_score > 1 ? '#ef4444' : '#22c55e';
+    const biasColor = metrics.bias_detected ? '#ef4444' : '#22c55e';
+    const biasText = metrics.bias_detected ? 'DÉTECTÉ' : 'AUCUN';
+    
+    const helpId = 'help-' + Date.now();
+
+    // Includes Reasoning and 3 Metrics
+    div.innerHTML = `
+        <div class="fairness-header">
+            <span><i class="fas fa-balance-scale"></i> Audit Éthique</span>
+            <i class="fas fa-question-circle fairness-help-icon" onclick="toggleFairnessHelp('${helpId}')"></i>
+        </div>
+        
+        <div id="${helpId}" class="fairness-explanation hidden">
+            <div style="margin-bottom:8px; padding-bottom:8px; border-bottom:1px solid #334155;">
+                <strong>🔍 Analyse IA :</strong><br>
+                <em style="color:#93c5fd;">"${metrics.reasoning}"</em>
+            </div>
+            <strong>📊 Définitions :</strong>
+            <ul>
+                <li><strong>Complexité</strong> : Jargon médical. (Cible < 5)</li>
+                <li><strong>Toxicité</strong> : Propos dangereux. (Cible 0)</li>
+                <li><strong>Biais</strong> : Préjugés culturels/raciaux.</li>
+            </ul>
+        </div>
+        
+        <div class="fairness-grid">
+            <div class="metric">
+                <span>Complexité</span>
+                <span style="color: ${complexityColor}; font-weight:bold;">${metrics.complexity_score.toFixed(1)}</span>
+            </div>
+            <div class="metric">
+                <span>Toxicité</span>
+                <span style="color: ${toxicityColor}; font-weight:bold;">${metrics.toxicity_score.toFixed(1)}</span>
+            </div>
+             <div class="metric">
+                <span>Biais</span>
+                <span style="color: ${biasColor}; font-weight:bold; font-size:11px;">${biasText}</span>
+            </div>
+        </div>`;
+    box.appendChild(div);
+    scrollToBottom();
+}
+
+function toggleFairnessHelp(id) {
+    const el = document.getElementById(id);
+    el.classList.toggle('hidden');
+}
+
+// --- SCANNER LOGIC ---
 function handleFileSelect() {
+    console.log("File selected");
     const file = document.getElementById('fileInput').files[0];
     if(file) {
         const display = document.getElementById('fileNameDisplay');
@@ -166,74 +243,68 @@ function handleFileSelect() {
 }
 
 async function uploadFile() {
-    const file = document.getElementById('fileInput').files[0];
-    if(!file) return;
+    console.log("Upload triggered");
     
+    if (!currentSessionId) { 
+        alert("Session non initialisée. Veuillez rafraîchir."); 
+        return; 
+    }
+    const fileInput = document.getElementById('fileInput');
+    const file = fileInput ? fileInput.files[0] : null;
+    
+    if(!file) {
+        alert("Aucun fichier sélectionné.");
+        return;
+    }
+    
+    document.getElementById('uploadZone').classList.add('hidden');
     document.getElementById('analyzeBtn').classList.add('hidden');
     document.getElementById('scanLoader').classList.remove('hidden');
-    document.getElementById('scanResultSection').classList.add('hidden');
-    document.getElementById('medCardsContainer').innerHTML = ""; 
     
     const formData = new FormData();
     formData.append('file', file);
     formData.append('session_id', currentSessionId);
-    formData.append('age', document.getElementById('userAge').value);
-    formData.append('language', document.getElementById('userLang').value);
+    formData.append('age', document.getElementById('userAge').value || "30");
+    formData.append('language', document.getElementById('userLang').value || "Français");
     
     try {
         const res = await fetch('/api/upload', { method: 'POST', body: formData });
+        if(!res.ok) throw new Error("Erreur serveur lors de l'envoi");
         
-        if(!res.ok) {
-            const err = await res.json();
-            throw new Error(err.detail || "Upload failed");
-        }
-
         const data = await res.json();
         
         document.getElementById('scanLoader').classList.add('hidden');
         document.getElementById('scanResultSection').classList.remove('hidden');
         
-        // 1. Render Cards
         const cardsContainer = document.getElementById('medCardsContainer');
+        cardsContainer.innerHTML = "";
+        
         if (data.meds_data && data.meds_data.length > 0) {
             data.meds_data.forEach(med => {
+                if (!med.nom || med.nom.toUpperCase().includes("INCERTAIN")) return;
                 const card = document.createElement('div');
                 card.className = 'med-card';
-                card.innerHTML = `
-                    <div class="med-name">${med.nom || '?'}</div>
-                    <div class="med-dosage">${med.dosage || ''}</div>
-                    <div class="med-posology">${med.posologie || ''}</div>
-                `;
+                card.innerHTML = `<div class="med-name">${med.nom}</div><div class="med-dosage">${med.dosage || ''}</div><div class="med-posology">${med.posologie || ''}</div>`;
                 cardsContainer.appendChild(card);
             });
         }
         
-        // 2. Typewriter Explanation
-        const textContainer = document.getElementById('scanExplanation');
-        textContainer.innerHTML = ""; 
-        let i = 0;
-        function typeScan() {
-            if (i < data.explanation.length) {
-                textContainer.innerHTML += (data.explanation.charAt(i) === '\n' ? '<br>' : data.explanation.charAt(i));
-                i++;
-                setTimeout(typeScan, 8);
-            }
-        }
-        typeScan();
-
-        // 3. Raw Content
-        document.getElementById('scanRawContent').innerText = data.extracted_text;
-        
-        loadHistory();
+        // Refresh Chat
+        await loadHistory();
+        const resMsg = await fetch(`/api/messages/${currentSessionId}`);
+        const messages = await resMsg.json();
+        const chatBox = document.getElementById('chatBox');
+        chatBox.innerHTML = ''; 
+        messages.forEach(msg => addMessage(msg.content, msg.role, false)); 
+        switchTab('chat');
         
     } catch(e) {
+        console.error(e);
         alert("Erreur: " + e.message);
-        document.getElementById('scanLoader').classList.add('hidden');
-        document.getElementById('analyzeBtn').classList.remove('hidden');
+        resetScanView();
     }
 }
 
-// --- DELETE ---
 async function deleteSession(sid, e) {
     e.stopPropagation();
     if(!confirm("Supprimer ?")) return;
@@ -243,7 +314,7 @@ async function deleteSession(sid, e) {
 }
 
 async function deleteAllSessions() {
-    if(!confirm("⚠️ Attention : Cela va effacer TOUT l'historique. Continuer ?")) return;
+    if(!confirm("Effacer TOUT ?")) return;
     await fetch('/api/delete_all_sessions', { method: 'DELETE' });
     startNewSession(); 
     loadHistory(); 
@@ -251,7 +322,7 @@ async function deleteAllSessions() {
 
 function scrollToBottom() {
     const box = document.getElementById('chatBox');
-    box.scrollTop = box.scrollHeight;
+    if(box) box.scrollTop = box.scrollHeight;
 }
 
 document.getElementById('userInput').addEventListener('keypress', (e) => {

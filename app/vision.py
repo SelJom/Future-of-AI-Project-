@@ -1,7 +1,7 @@
 import ollama
 from PIL import Image
 import io
-import fitz  
+import fitz  # PyMuPDF
 from app.config import Config
 
 def analyze_prescription_stream(image_bytes):
@@ -30,7 +30,6 @@ def analyze_prescription_stream(image_bytes):
     """
     
     try:
-        # On active le mode 'stream' d'Ollama
         stream = ollama.chat(
             model=Config.VISION_MODEL_NAME,
             messages=[{
@@ -47,36 +46,43 @@ def analyze_prescription_stream(image_bytes):
     except Exception as e:
         yield f"Error: {str(e)}"
 
-# --- FONCTION 2 : L'Originale (Pour la compatibilité) ---
 def analyze_prescription(image_bytes):
-    """
-    Fonction classique qui attend la fin et renvoie tout le texte d'un coup.
-    Elle utilise la fonction stream ci-dessus pour éviter de dupliquer le code.
-    """
     full_text = ""
-    # On consomme tout le stream pour reconstituer la phrase
     for chunk in analyze_prescription_stream(image_bytes):
         full_text += chunk
     return full_text
 
-# --- FONCTION 3 : Traitement des Fichiers (Inchangée) ---
-def process_file_to_images(uploaded_file):
-    # (Copiez-collez votre code existant pour process_file_to_images ici)
-    # ... le code avec fitz et PIL ...
-    # Je remets le début pour rappel :
+# --- CORRECTED FUNCTION ---
+def process_file_to_images(file_bytes, mime_type):
+    """
+    Processes raw file bytes into images.
+    Args:
+        file_bytes (bytes): The file content.
+        mime_type (str): The mime type (e.g. 'application/pdf').
+    Returns:
+        list: [(label, PIL_Image, bytes)]
+        str: Error message or None
+    """
     processed_images = []
     try:
-        if "pdf" in uploaded_file.type:
-            with fitz.open(stream=uploaded_file.read(), filetype="pdf") as doc:
+        # Handle PDF
+        if "pdf" in mime_type.lower():
+            # fitz.open expects bytes if stream is provided, no await needed here as we pass bytes
+            with fitz.open(stream=file_bytes, filetype="pdf") as doc:
                 for page_num, page in enumerate(doc):
                     pix = page.get_pixmap(dpi=200)
                     img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+                    
                     b = io.BytesIO()
                     img.save(b, format='JPEG')
                     processed_images.append((f"Page {page_num + 1}", img, b.getvalue()))
+        
+        # Handle Images
         else:
-            image = Image.open(uploaded_file)
-            if image.mode in ("RGBA", "P"): image = image.convert("RGB")
+            image = Image.open(io.BytesIO(file_bytes))
+            if image.mode in ("RGBA", "P"): 
+                image = image.convert("RGB")
+            
             b = io.BytesIO()
             image.save(b, format='JPEG')
             processed_images.append(("Image importée", image, b.getvalue()))

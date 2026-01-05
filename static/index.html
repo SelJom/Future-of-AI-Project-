@@ -6,6 +6,7 @@
     <title>MediMind AI</title>
     <link rel="stylesheet" href="/static/style.css">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
 <body>
 
@@ -36,7 +37,10 @@
                         <select id="userLevel">
                             <option value="Simple">Simple</option>
                             <option value="Intermédiaire" selected>Intermédiaire</option>
+                            <option value="Avancé">Avancé</option>
                             <option value="Expert">Expert</option>
+
+
                         </select>
                     </div>
                 </details>
@@ -77,31 +81,27 @@
 
         <div id="scan-view" class="view">
             <div class="scan-container">
-                <div class="upload-zone" onclick="document.getElementById('fileInput').click()">
+                <div id="uploadZone" class="upload-zone" onclick="document.getElementById('fileInput').click()">
                     <i class="fas fa-cloud-upload-alt"></i>
                     <h3>Cliquez pour scanner</h3>
                     <p>Formats supportés : JPG, PNG, PDF</p>
                     <input type="file" id="fileInput" hidden accept=".jpg,.png,.jpeg,.pdf" onchange="handleFileSelect()">
                 </div>
+                
                 <div id="fileNameDisplay" class="file-name hidden"></div>
-                <button class="primary-btn hidden" id="analyzeBtn" onclick="uploadFile()">Lancer l'analyse</button>
+                
+                <button type="button" class="primary-btn hidden" id="analyzeBtn" onclick="uploadFile()">Lancer l'analyse</button>
                 
                 <div id="scanLoader" class="loader hidden">
                     <div class="spinner"></div> Analyse en cours...
                 </div>
                 
                 <div id="scanResultSection" class="hidden">
-                    
                     <div id="medCardsContainer"></div>
                     
-                    <div class="med-card-result">
-                        <div class="med-header"><i class="fas fa-info-circle"></i> Explication & Analyse</div>
+                    <div class="med-card-result hidden">
+                        <div class="med-header"><i class="fas fa-info-circle"></i> Explication</div>
                         <div id="scanExplanation" class="med-body"></div>
-                    </div>
-
-                    <div class="med-card-result">
-                        <div class="med-header"><i class="fas fa-file-alt"></i> Contenu Brut</div>
-                        <div id="scanRawContent" class="med-body raw-text"></div>
                     </div>
                 </div>
             </div>
