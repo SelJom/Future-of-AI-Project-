@@ -21,16 +21,3 @@ class Config:
     # --- NEW: MEDICAL EMBEDDINGS ---
     EMBEDDING_MODEL_NAME = os.getenv("EMBEDDING_MODEL_NAME", "pritamdeka/S-PubMedBert-MS-MARCO")
     # EMBEDDING_MODEL_NAME = os.getenv("EMBEDDING_MODEL_NAME", "all-MiniLM-L6-v2")
-
-     # --- FAIRNESS / SAFETY THRESHOLDS ---
-    TOXICITY_THRESHOLD = 3.0  # Out of 10
-    COMPLEXITY_LEVELS = {
-        "Niveau 1 (ELI5)": "Explain like I'm 5 years old. Use very simple words, analogies, and short sentences.",
-        "Niveau 2 (Grand Public)": "General public. Clear, standard language, avoid jargon without explanation.",
-        "Niveau 3 (Initié)": "Informed patient. Use correct terminology but explain complex mechanisms.",
-        "Niveau 4 (Avancé)": "Advanced understanding. Detailed biological mechanisms and statistics.",
-        "Niveau 5 (Expert)": "Medical professional level. precise clinical terminology, dense information."
-    }
-
-
-

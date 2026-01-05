@@ -1,5 +1,45 @@
 let currentSessionId = null;
 
+// Multilingual Dictionary
+const translations = {
+    "Français": {
+        "analysis_title": "🔍 Analyse IA :",
+        "definitions_title": "📊 Définitions :",
+        "complexity": "Complexité",
+        "complexity_desc": "Jargon médical. (Cible < 5)",
+        "toxicity": "Toxicité",
+        "toxicity_desc": "Propos dangereux. (Cible 0)",
+        "bias": "Biais",
+        "bias_desc": "Préjugés culturels/raciaux.",
+        "bias_detected": "DÉTECTÉ",
+        "bias_none": "AUCUN"
+    },
+    "English": {
+        "analysis_title": "🔍 AI Analysis:",
+        "definitions_title": "📊 Definitions:",
+        "complexity": "Complexity",
+        "complexity_desc": "Medical jargon. (Target < 5)",
+        "toxicity": "Toxicity",
+        "toxicity_desc": "Dangerous content. (Target 0)",
+        "bias": "Bias",
+        "bias_desc": "Cultural/Racial prejudice.",
+        "bias_detected": "DETECTED",
+        "bias_none": "NONE"
+    },
+    "Espagnol": {
+        "analysis_title": "🔍 Análisis IA:",
+        "definitions_title": "📊 Definiciones:",
+        "complexity": "Complejidad",
+        "complexity_desc": "Jerga médica. (Meta < 5)",
+        "toxicity": "Toxicidad",
+        "toxicity_desc": "Contenido peligroso. (Meta 0)",
+        "bias": "Sesgo",
+        "bias_desc": "Prejuicios culturales/raciales.",
+        "bias_detected": "DETECTADO",
+        "bias_none": "NINGUNO"
+    }
+};
+
 window.onload = async () => {
     await loadHistory();
     startNewSession();
@@ -32,7 +72,7 @@ async function startNewSession() {
             <div class="empty-state">
                 <div class="empty-icon">👋</div>
                 <h3>Bonjour !</h3>
-                <p>Je suis votre assistant santé.</p>
+                <p>Je suis votre assistant santé. Posez-moi une question ou scannez une ordonnance.</p>
             </div>`;
         
         document.querySelectorAll('.history-item').forEach(el => el.classList.remove('active'));
@@ -51,7 +91,7 @@ function resetScanView() {
     document.getElementById('scanLoader').classList.add('hidden');
     document.getElementById('docPreviewContainer').innerHTML = ""; 
     document.getElementById('keywordsContainer').innerHTML = ""; 
-    document.getElementById('scanActions').classList.add('hidden'); // Hide buttons
+    document.getElementById('scanActions').classList.add('hidden');
     
     document.getElementById('uploadSection').classList.remove('hidden');
     document.getElementById('fileNameDisplay').classList.add('hidden');
@@ -184,15 +224,19 @@ function addThinking() {
     return div.id;
 }
 
+
 function addFairnessScorecard(metrics) {
     const box = document.getElementById('chatBox');
     const div = document.createElement('div');
     div.className = 'fairness-card';
     
+    const userLang = document.getElementById('userLang').value || "Français";
+    const t = translations[userLang] || translations["Français"];
+    
     const complexityColor = metrics.complexity_score > 7 ? '#ef4444' : (metrics.complexity_score > 4 ? '#f97316' : '#22c55e');
     const toxicityColor = metrics.toxicity_score > 1 ? '#ef4444' : '#22c55e';
     const biasColor = metrics.bias_detected ? '#ef4444' : '#22c55e';
-    const biasText = metrics.bias_detected ? 'DÉTECTÉ' : 'AUCUN';
+    const biasText = metrics.bias_detected ? t.bias_detected : t.bias_none;
     const helpId = 'help-' + Date.now();
 
     div.innerHTML = `
@@ -200,22 +244,33 @@ function addFairnessScorecard(metrics) {
             <span><i class="fas fa-balance-scale"></i> Audit Éthique</span>
             <i class="fas fa-question-circle fairness-help-icon" onclick="toggleFairnessHelp('${helpId}')"></i>
         </div>
+        
         <div id="${helpId}" class="fairness-explanation hidden">
             <div style="margin-bottom:8px; padding-bottom:8px; border-bottom:1px solid #334155;">
-                <strong>🔍 Analyse IA :</strong><br>
+                <strong>${t.analysis_title}</strong><br>
                 <em style="color:#93c5fd;">"${metrics.reasoning}"</em>
             </div>
-            <strong>📊 Définitions :</strong>
+            <strong>${t.definitions_title}</strong>
             <ul>
-                <li><strong>Complexité</strong> : Jargon médical. (Cible < 5)</li>
-                <li><strong>Toxicité</strong> : Propos dangereux. (Cible 0)</li>
-                <li><strong>Biais</strong> : Préjugés culturels/raciaux.</li>
+                <li><strong>${t.complexity}</strong> : ${t.complexity_desc}</li>
+                <li><strong>${t.toxicity}</strong> : ${t.toxicity_desc}</li>
+                <li><strong>${t.bias}</strong> : ${t.bias_desc}</li>
             </ul>
         </div>
+        
         <div class="fairness-grid">
-            <div class="metric"><span>Complexité</span><span style="color: ${complexityColor}; font-weight:bold;">${metrics.complexity_score.toFixed(1)}</span></div>
-            <div class="metric"><span>Toxicité</span><span style="color: ${toxicityColor}; font-weight:bold;">${metrics.toxicity_score.toFixed(1)}</span></div>
-             <div class="metric"><span>Biais</span><span style="color: ${biasColor}; font-weight:bold; font-size:11px;">${biasText}</span></div>
+            <div class="metric">
+                <span>${t.complexity}</span>
+                <span style="color: ${complexityColor}; font-weight:bold;">${metrics.complexity_score.toFixed(1)}</span>
+            </div>
+            <div class="metric">
+                <span>${t.toxicity}</span>
+                <span style="color: ${toxicityColor}; font-weight:bold;">${metrics.toxicity_score.toFixed(1)}</span>
+            </div>
+             <div class="metric">
+                <span>${t.bias}</span>
+                <span style="color: ${biasColor}; font-weight:bold; font-size:11px;">${biasText}</span>
+            </div>
         </div>`;
     box.appendChild(div);
     scrollToBottom();
@@ -226,6 +281,7 @@ function toggleFairnessHelp(id) {
     el.classList.toggle('hidden');
 }
 
+// --- SCANNER LOGIC ---
 function handleFileSelect() {
     const file = document.getElementById('fileInput').files[0];
     if(file) {
@@ -249,19 +305,16 @@ async function uploadFile() {
         return;
     }
     
-    // 1. UI: Hide Upload, Show Results (for preview)
     document.getElementById('uploadSection').classList.add('hidden');
-    document.getElementById('scanResultSection').classList.remove('hidden');
-    document.getElementById('scanActions').classList.add('hidden'); // Hide buttons until done
     document.getElementById('scanLoader').classList.remove('hidden');
+    document.getElementById('scanResultSection').classList.remove('hidden');
+    document.getElementById('scanActions').classList.add('hidden');
     
-    // Reset fields
     document.getElementById('scanExplanation').innerHTML = "<i style='color:#64748b'>Analyse en cours...</i>";
     document.getElementById('medCardsContainer').innerHTML = "";
     document.getElementById('keywordsContainer').innerHTML = "";
     document.getElementById('resultFileName').innerText = "Fichier : " + file.name;
 
-    // 2. SHOW PREVIEW
     const previewContainer = document.getElementById('docPreviewContainer');
     previewContainer.innerHTML = "";
     
@@ -286,18 +339,15 @@ async function uploadFile() {
     
     try {
         const res = await fetch('/api/upload', { method: 'POST', body: formData });
-        if(!res.ok) throw new Error("Erreur serveur lors de l'envoi");
+        if(!res.ok) throw new Error("Erreur serveur");
         
         const data = await res.json();
         
-        // 3. DONE: Hide Loader, Show Actions
         document.getElementById('scanLoader').classList.add('hidden');
         document.getElementById('scanActions').classList.remove('hidden');
         
-        // 4. Populate Content
         document.getElementById('scanExplanation').innerHTML = marked.parse(data.explanation);
         
-        // Med Cards
         const cardsContainer = document.getElementById('medCardsContainer');
         cardsContainer.innerHTML = "";
         if (data.meds_data && data.meds_data.length > 0) {
@@ -310,7 +360,6 @@ async function uploadFile() {
             });
         }
         
-        // KEYWORDS (Chips)
         const kwContainer = document.getElementById('keywordsContainer');
         kwContainer.innerHTML = "";
         if (data.keywords && data.keywords.length > 0) {
@@ -321,7 +370,7 @@ async function uploadFile() {
                 kwContainer.appendChild(badge);
             });
         } else {
-            kwContainer.innerHTML = "<span style='font-size:12px; color:#64748b;'>Aucun mot-clé détecté.</span>";
+            kwContainer.innerHTML = "<span style='font-size:12px; color:#64748b;'>Aucun mot-clé.</span>";
         }
         
         await loadHistory(); 

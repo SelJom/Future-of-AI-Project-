@@ -1,47 +1,47 @@
 import json
 import logging
 import re
-from langchain_core.messages import SystemMessage, HumanMessage
+from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 from app.llm import get_llm
 from app.vector_store import query_trials
 
+# --- LOGGING SETUP ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger("MedicalAgentGraph")
 
+# Initialize separate LLMs
 llm_strict = get_llm(temperature=0.1)   # For Logic/Facts/Safety
 llm_creative = get_llm(temperature=0.7) # For Tone/Empathy/Chat
 
-def parse_json_output(text):
-    """
-    Extracts JSON object from a string, handling markdown blocks or extra text.
-    """
+# --- HELPER: ROBUST JSON PARSER ---
+def extract_and_parse_json(text):
     text = text.strip()
     try:
-        # 1. Try direct parse
         return json.loads(text)
     except json.JSONDecodeError:
-        try:
-            # 2. Extract content between first { and last }
-            match = re.search(r"\{.*\}", text, re.DOTALL)
+        pass
+    try:
+        match = re.search(r"(\{.*\})", text, re.DOTALL)
+        if match:
+            json_str = match.group(1)
+            json_str = re.sub(r",\s*\}", "}", json_str)
+            return json.loads(json_str)
+    except:
+        pass
+    try:
+        if "```json" in text:
+            pattern = r"```json(.*?)```"
+            match = re.search(pattern, text, re.DOTALL)
             if match:
-                return json.loads(match.group())
-            # 3. Handle markdown code blocks
-            text = text.replace("```json", "").replace("```", "").strip()
-            return json.loads(text)
-        except:
-            return None
+                return json.loads(match.group(1).strip())
+    except:
+        pass
+    return None
 
-# --- 1. SUPERVISOR (The Orchestrator) ---
+# --- 1. SUPERVISOR (Strict) ---
 def supervisor_node(state):
-    """
-    Analyzes intent and routes to:
-    - GENERAL_CHAT: Greetings, off-topic.
-    - SIMPLE_MEDICAL: Fast track (no RAG) for basic definitions/advice.
-    - COMPLEX_MEDICAL: Full chain (RAG + Safety) for specific drugs, interactions, OCR.
-    """
     logger.info("--- 🕵️ SUPERVISOR AGENT STARTED ---")
     
-    # 1. Find the last message (ignore system/instruction messages)
     messages = state.get("messages", [])
     query = ""
     for m in reversed(messages):
@@ -52,72 +52,61 @@ def supervisor_node(state):
     logger.info(f"Analyzing User Query: '{query}'")
     
     system_prompt = """
-    You are the Supervisor of a Medical AI. Classify the user's intent into exactly ONE category.
+    You are a JSON Classification Engine.
+    TASK: Classify the input text into exactly ONE category.
     
-    1. "GENERAL_CHAT": 
-       - Greetings ("Hello"), Jokes, Off-topic.
-       - Vague intent statements like "I have a question" or "Can you help me?" (The user hasn't asked the medical question yet).
+    1. "GENERAL_CHAT":
+       - Greetings ("Hello"), Small talk.
+       - "I have a question" (without the question itself).
     
     2. "SIMPLE_MEDICAL":
-       - Basic definitions ("What is Paracetamol?").
-       - Basic drug interaction
-       - Simple Symptom diagnosis/analysis
-       - Standard usage/dosage questions ("When to take Doliprane?").
-       - General health advice ("How to sleep better?").
-       - NO documents attached.
+       - Basic Definitions ("What is X?").
+       - General advice ("Tips for flu").
     
     3. "COMPLEX_MEDICAL":
-       - Complex Drug interactions ("Can I take Advil with Warfarin?").
-       - Complex Symptom diagnosis/analysis.
-       - Complex Questions requiring OCR context (Prescriptions).
-       - Specific clinical cases.
+       - Interactions ("Can I mix X and Y?").
+       - Specific symptoms or conditions.
+       - Questions about a specific document context.
     
-    OUTPUT FORMAT: Strictly JSON.
-    {"next_step": "CATEGORY_NAME"}
+    RESPONSE FORMAT: {"next_step": "CATEGORY_NAME"}
     """
     
     try:
         resp = llm_strict.invoke([SystemMessage(content=system_prompt), HumanMessage(content=query)])
-        decision = parse_json_output(resp.content)
+        decision = extract_and_parse_json(resp.content)
         
         if not decision or "next_step" not in decision:
-            raise ValueError("Invalid JSON output")
+            q_lower = query.lower()
+            if any(x in q_lower for x in ['medicament', 'drug', 'symptom', 'pain', 'mix', 'mélanger']):
+                return {"next_step": "COMPLEX_MEDICAL", "iteration_count": 0}
+            return {"next_step": "GENERAL_CHAT", "iteration_count": 0}
             
         next_step = decision.get("next_step", "GENERAL_CHAT")
         logger.info(f"Supervisor Decision: {next_step}")
         return {"next_step": next_step, "iteration_count": 0}
         
     except Exception as e:
-        logger.error(f"Supervisor Error: {e}. Defaulting to GENERAL_CHAT.")
+        logger.error(f"Supervisor Error: {e}")
         return {"next_step": "GENERAL_CHAT", "iteration_count": 0}
 
-# --- NEW: SIMPLE MEDICAL NODE (Fast Track) ---
+# --- NEW: SIMPLE MEDICAL NODE ---
 def simple_medical_node(state):
-    """
-    Handles basic medical questions instantly without RAG/Guardian overhead.
-    Uses Creative LLM for natural tone.
-    """
     logger.info("--- ⚡ SIMPLE MEDICAL AGENT STARTED ---")
     messages = state.get("messages", [])
     language = state.get("user_profile", {}).get("language", "English")
     
     prompt = f"""
-    You are a helpful and clear Medical Assistant.
+    You are a helpful Medical Assistant.
+    Answer the user's question clearly, concisely, and accurately in {language}.
     
-    Task: Answer the user's question clearly, concisely, and accurately in {language}.
-    
-    Guidelines:
-    - Be direct and helpful.
-    - Do NOT mention that this is a "simple" answer.
-    - If the question actually requires more context than you have, ask the user for details.
+    STRICT RULES:
+    1. **NO INTRODUCTIONS**: Do NOT say "Hello", "I am an AI", or "Here is the answer".
+    2. **START IMMEDIATELY**: Begin directly with the medical explanation.
     """
-    
-    # Use the conversation history for context
     response = llm_creative.invoke([SystemMessage(content=prompt)] + messages[-3:])
-    logger.info("Simple Medical response generated.")
     return {"messages": [response]}
 
-# --- 2. MEDICAL EXPERT (Complex Track) ---
+# --- 2. MEDICAL EXPERT (Strict + List Handling Fix) ---
 def medical_expert_node(state):
     logger.info("--- 🔬 MEDICAL EXPERT AGENT STARTED ---")
     
@@ -126,144 +115,149 @@ def medical_expert_node(state):
     
     # 1. Try RAG
     logger.info("Querying Vector Store (RAG)...")
-    retrieved = query_trials(query)
-    logger.info(f"RAG Retrieved {len(retrieved)} chars of context.")
+    try:
+        retrieved_data = query_trials(query)
+        
+        # --- FIX FOR "LIST HAS NO ATTRIBUTE STRIP" ---
+        if isinstance(retrieved_data, list):
+            # If it's a list of strings, join them.
+            retrieved = "\n\n".join([str(item) for item in retrieved_data])
+        elif isinstance(retrieved_data, str):
+            retrieved = retrieved_data
+        else:
+            # Fallback for other types
+            retrieved = str(retrieved_data)
+            
+    except Exception as e:
+        logger.error(f"RAG Retrieval Failed: {e}")
+        retrieved = ""
     
-    # 2. Call LLM
+    # 2. Check for Valid Context
+    if not retrieved or len(retrieved.strip()) < 10 or "Aucune étude" in retrieved:
+        rag_status = "NO_CONTEXT_FOUND"
+        rag_content = "No specific documents available."
+        logger.info("RAG is empty. Forcing General Knowledge.")
+    else:
+        rag_status = "CONTEXT_AVAILABLE"
+        rag_content = retrieved
+        logger.info(f"RAG Retrieved Context.")
+    
+    # 3. Call LLM
     prompt = f"""
-    You are a Senior Medical Researcher. Your goal is to provide a purely factual summary.
+    You are a Senior Medical Researcher. 
+    TASK: Provide a factual medical summary for the query.
     
-    User Query: "{query}"
-    Context from Database (RAG): {retrieved}
+    [USER QUERY]: "{query}"
+    [RAG STATUS]: {rag_status}
+    [RAG CONTENT]: {rag_content}
     
-    INSTRUCTIONS:
-    1. Extract all relevant medical facts (Symptoms, Dosages, Treatments, Contraindications).
-    2. If RAG data is present, prioritize it.
-    3. If RAG is empty/irrelevant, use your high-level general medical knowledge (Gold Standard).
-    4. Do NOT simplify language yet. Do NOT be conversational. Be precise and technical.
+    CRITICAL INSTRUCTIONS:
+    1. If RAG content is available, use it.
+    2. **IF RAG IS EMPTY, YOU MUST USE YOUR OWN GENERAL MEDICAL KNOWLEDGE.**
+    3. Do NOT say "I cannot answer" or "I need documents". Answer the question directly.
+    4. Provide standard medical facts (Interactions, Contraindications, Usage).
     
-    Output the raw medical facts now.
+    Output the raw facts now.
     """
     
     facts_response = llm_strict.invoke([HumanMessage(content=prompt)])
     facts = facts_response.content
-    logger.info(f"Medical Facts Extracted (First 50 chars): {facts[:50]}...")
+    
+    # 4. Emergency Fallback
+    if "cannot" in facts.lower() and ("context" in facts.lower() or "document" in facts.lower()):
+        logger.warning("Expert refused to answer. Retrying with Creative Fallback.")
+        retry_prompt = f"Answer this medical question using general knowledge: {query}"
+        facts_response = llm_creative.invoke([HumanMessage(content=retry_prompt)])
+        facts = facts_response.content
+
+    logger.info(f"Medical Facts Extracted: {facts[:50]}...")
     return {"medical_facts": facts}
 
-# --- 3. PROFILER ---
+# --- 3. PROFILER (Creative) ---
 def profiler_node(state):
     logger.info("--- 👤 PROFILER AGENT STARTED ---")
     profile = state.get("user_profile", {})
-    age = profile.get("age", 30)
-    lang = profile.get("language", "English")
-    level = profile.get("literacy_level", "Medium")
-    
-    logger.info(f"Profiling for: Age {age}, Lang {lang}, Level {level}")
-    
-    prompt = f"""
-    You are an expert in Health Communication.
-    
-    Target: Age {age}, Language {lang}, Literacy {level}.
-    
-    Task: Define a communication strategy.
-    1. Tone (e.g., Empathetic, Direct).
-    2. Analogy Strategy (1 concrete metaphor).
-    3. Key Precautions (Terms to simplify).
-    
-    Keep it concise.
-    """
-    
+    prompt = f"Define a communication strategy for: Age {profile.get('age')}, Lang {profile.get('language')}."
     strategy = llm_creative.invoke([HumanMessage(content=prompt)]).content
-    logger.info(f"Strategy Defined: {strategy[:50]}...")
     return {"cultural_strategy": strategy}
 
-# --- 4. TRANSLATOR ---
+# --- 4. TRANSLATOR (Creative + Diagrams + Clean Output) ---
 def translator_node(state):
     logger.info("--- ✍️ TRANSLATOR AGENT STARTED ---")
     facts = state["medical_facts"]
     strategy = state["cultural_strategy"]
-    feedback = state.get("critique_feedback", "No prior critique.")
+    feedback = state.get("critique_feedback", "N/A")
     language = state['user_profile'].get('language', 'English')
-    
-    logger.info(f"Drafting response in {language}...")
     
     prompt = f"""
     You are a compassionate Family Doctor.
+    FACTS: {facts}
+    STRATEGY: {strategy}
+    SAFETY FEEDBACK: {feedback}
     
-    [MEDICAL FACTS]: {facts}
-    [STRATEGY]: {strategy}
-    [FEEDBACK]: {feedback}
+    MISSION: Explain to the patient in {language}.
     
-    MISSION:
-    Explain the medical facts to the patient in {language}.
+    **STRICT FORMATTING RULES:**
+    1. **NO INTRODUCTIONS**: Do NOT say "Hello", "I am Doctor X", "Here is a response", or "As an AI".
+    2. **START IMMEDIATELY**: Start the first sentence directly with the medical explanation.
+    3. Tone: Warm, clear, direct. Use metaphors if helpful.
     
-    GUIDELINES:
-    1. Tone: Warm, direct, reassuring.
-    2. Clarity: Use the metaphors from the Strategy.
-    3. NO Fluff: Start directly with the answer.
-    4. Diagrams: Assess if the users would be able to understand response better with the use of diagrams and trigger them by adding the 
+    4. **DIAGRAMS**: 
+       Assess if the explanation would be clearer with a diagram. 
+       If yes, insert a tag like `
 
 [Image of X]
- tag.
-    
-    Draft the response now.
-    """
-    
-    response = llm_creative.invoke([SystemMessage(content=prompt)])
-    draft = response.content
-    logger.info("Draft generated.")
-    return {"draft_response": draft}
+` (e.g., `
 
-# --- 5. GUARDIAN ---
+[Image of digestive system]
+`). 
+       Only add tags if they provide instructive value. Place them immediately after the relevant text.
+    
+    Draft response:
+    """
+    response = llm_creative.invoke([SystemMessage(content=prompt)])
+    return {"draft_response": response.content}
+
+# --- 5. GUARDIAN (Strict) ---
 def guardian_node(state):
     logger.info("--- 🛡️ GUARDIAN AGENT STARTED ---")
     facts = state["medical_facts"]
     draft = state["draft_response"]
     
     prompt = f"""
-    You are the Senior Chief Medical Officer. Audit this response.
-    
+    Audit this response.
     SOURCE: {facts}
     DRAFT: {draft}
     
-    CHECK:
-    1. Hallucinations?
-    2. Dangerous Omissions?
-    3. Bad Tone?
-    
-    OUTPUT JSON:
-    {{
-        "status": "APPROVED" | "REJECTED",
-        "feedback": "Reason if REJECTED, else 'N/A'"
-    }}
+    OUTPUT JSON: {{ "status": "APPROVED" | "REJECTED", "feedback": "..." }}
     """
     
     try:
         resp = llm_strict.invoke([HumanMessage(content=prompt)])
-        analysis = parse_json_output(resp.content)
+        analysis = extract_and_parse_json(resp.content)
+        if not analysis: return {"safety_status": "APPROVED", "iteration_count": 99}
         
-        if not analysis:
-            # Fallback if JSON fails but response seems ok
-            logger.warning("Guardian JSON parse failed. Assuming APPROVED to prevent loop.")
-            return {"safety_status": "APPROVED", "critique_feedback": "N/A", "iteration_count": state["iteration_count"] + 1}
-
         status = analysis.get("status", "REJECTED")
-        feedback = analysis.get("feedback", "N/A")
-        
         logger.info(f"Guardian Status: {status}")
-        return {
-            "safety_status": status,
-            "critique_feedback": feedback,
-            "iteration_count": state["iteration_count"] + 1
-        }
-    except Exception as e:
-        logger.error(f"Guardian Error: {e}. Defaulting to APPROVED.")
-        return {"safety_status": "APPROVED", "critique_feedback": "N/A", "iteration_count": state["iteration_count"] + 1}
+        return {"safety_status": status, "critique_feedback": analysis.get("feedback", "N/A"), "iteration_count": state["iteration_count"] + 1}
+    except:
+        return {"safety_status": "APPROVED", "iteration_count": 99}
 
+# --- 6. PUBLISHER (Required for Complex Chain) ---
+def publisher_node(state):
+    """
+    Takes the final draft and appends it to the conversation history.
+    """
+    logger.info("--- 📤 PUBLISHING FINAL RESPONSE ---")
+    final_text = state["draft_response"]
+    return {"messages": [AIMessage(content=final_text)]}
 
-# --- GENERAL CHAT ---
+# --- 7. VISUALIZER (Unused) ---
+def visualizer_node(state):
+    return {}
+
+# --- 8. GENERAL CHAT (Creative) ---
 def general_chat_node(state):
     logger.info("--- 💬 GENERAL CHAT AGENT STARTED ---")
     response = llm_creative.invoke(state["messages"])
-    logger.info("General Chat response generated.")
     return {"messages": [response]}
