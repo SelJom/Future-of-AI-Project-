@@ -386,6 +386,54 @@ div[data-testid="stButton"] button p {
     text-overflow: ellipsis;
     max-width: 100%;
 }
+            
+/* =========================
+   CHATGPT-LIKE CHAT FLOW
+========================= */
+
+/* Zone chat pleine largeur, sans carte */
+.chat-body {
+    max-width: var(--chat-width);
+    margin: 0 auto;
+    padding-top: 30px;
+    padding-bottom: 120px; /* espace pour l'input */
+    background: transparent !important;
+    border: none !important;
+}
+
+/* Supprime visuellement la carte */
+.chat-container,
+.chat-header {
+    display: none !important;
+}
+
+
+/* =========================
+   SOFTER BUTTON COLORS
+========================= */
+
+/* Bouton "Nouvelle Discussion" */
+div[data-testid="stButton"] button[kind="primary"] {
+    background-color: #334155 !important;   /* gris bleuté */
+    border: 1px solid #475569 !important;
+    color: #e5e7eb !important;
+}
+
+div[data-testid="stButton"] button[kind="primary"]:hover {
+    background-color: #475569 !important;
+}
+
+/* Boutons discussions actives */
+div[data-testid="stButton"] button[kind="secondary"] {
+    background-color: transparent !important;
+    border: 1px solid #334155 !important;
+    color: #cbd5f5 !important;
+}
+
+div[data-testid="stButton"] button[kind="secondary"]:hover {
+    background-color: #1e293b !important;
+}
+
 </style>
 """, unsafe_allow_html=True)
 
@@ -547,21 +595,14 @@ with tab_scan:
                 st.success("Analyse terminée ! Retrouvez le contexte dans l'onglet Discussion.")
 
 # --- TAB 2: CHAT ---
+# --- TAB 2: CHAT ---
 with tab_chat:
-    # Update active tab when this tab is viewed
     st.session_state.active_tab = "Discuter"
     
     current_history = get_session_history(st.session_state.current_session_id)
 
-    # Start the chat container
-    st.markdown('''
-    <div class="chat-container">
-        <div class="chat-header">
-            <h3>Assistant</h3>
-            <span>(Active)</span>
-        </div>
-        <div class="chat-body">
-    ''', unsafe_allow_html=True)
+    # Chat body (ChatGPT-like)
+    st.markdown('<div class="chat-body">', unsafe_allow_html=True)
 
     if not current_history:
         st.markdown('<div class="empty-state">👋 Ready to help!</div>', unsafe_allow_html=True)
@@ -582,8 +623,7 @@ with tab_chat:
                     <div class="message-bubble bot-bubble">{msg["content"]}</div>
                 </div>
                 ''', unsafe_allow_html=True)
-        
-        # Show thinking bubble if last message is from user
+
         if current_history[-1]["role"] == "user":
             st.markdown('''
             <div class="message-row row-bot">
@@ -591,39 +631,53 @@ with tab_chat:
             </div>
             ''', unsafe_allow_html=True)
 
-    # Close container
-    st.markdown('''
-        </div>
-    </div>
-    ''', unsafe_allow_html=True)
-    
+    st.markdown('</div>', unsafe_allow_html=True)
+
     scroll_to_bottom()
 
-    # --- USER INPUT ---
     if prompt := st.chat_input("Posez votre question..."):
         save_message_to_session(st.session_state.current_session_id, "user", prompt)
         st.rerun()
 
+
     # --- PROCESS AI RESPONSE ---
     if current_history and current_history[-1]["role"] == "user":
         try:
+
+            # 1. Construction du profil structuré
+            user_profile = {
+                "age": str(age),
+                "language": langue,
+                "literacy_level": etudes, # "Simple", "Intermédiaire", "Expert"
+                # Vous pouvez ajouter d'autres champs si vous ajoutez des inputs dans la sidebar
+                "context": "Patient using Health App" 
+            }
+
+            # 2. Préparation des messages LangChain
             lc_msgs = []
             for m in current_history:
                 if m["role"] == "user":
                     lc_msgs.append(HumanMessage(content=m["content"]))
                 elif m["role"] == "assistant":
                     lc_msgs.append(AIMessage(content=m["content"]))
-                elif m["role"] == "system":
-                    lc_msgs.append(SystemMessage(content=m["content"]))
+                # (Ignorer system messages anciens pour ne pas polluer)
 
+            # 3. Inputs du Graph
             inputs = {
                 "messages": lc_msgs,
-                "language": langue,
-                "complexity_prompt": complexity_prompt
+                "user_profile": user_profile,
+                # Initialisation des variables vides pour éviter les erreurs
+                "iteration_count": 0,
+                "critique_feedback": ""
             }
 
-            response = graph.invoke(inputs)
+            # 4. Exécution avec Spinner "Multi-Step"
+            with st.spinner("Analyse Médicale en cours"):
+                response = graph.invoke(inputs)
+
+            # 5. Récupération
             ai_msg_content = response["messages"][-1].content
+            # (Le reste du code save_message_to_session reste identique)
 
             save_message_to_session(st.session_state.current_session_id, "assistant", ai_msg_content)
 
