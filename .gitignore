@@ -3,3 +3,5 @@ venv/
 .env
 env
 data/
+__pycache__/
+*.py[cod]

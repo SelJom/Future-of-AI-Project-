@@ -3,88 +3,106 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Assistant Santé</title>
+    <title>MediMind AI</title>
     <link rel="stylesheet" href="/static/style.css">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
 </head>
 <body>
 
     <div class="sidebar">
-        <h2>🧠 MediMind</h2>
-        
-        <button class="new-chat-btn" onclick="createNewSession()">
-            <i class="fas fa-plus"></i> Nouvelle Discussion
-        </button>
-        
-        <div class="separator"></div>
-
-        <div class="settings">
-            <div class="setting-group">
-                <label>Âge</label>
-                <input type="number" id="userAge" value="30">
-            </div>
-            <div class="setting-group">
-                <label>Langue</label>
-                <select id="userLang">
-                    <option value="Français">Français</option>
-                    <option value="English">English</option>
-                    <option value="Espagnol">Espagnol</option>
-                </select>
-            </div>
-            <div class="setting-group">
-                <label>Niveau</label>
-                <select id="userLevel">
-                    <option value="Simple">Simple</option>
-                    <option value="Intermédiaire" selected>Intermédiaire</option>
-                    <option value="Expert">Expert</option>
-                </select>
-            </div>
+        <div class="sidebar-header">
+            <h2>🧠 MediMind</h2>
+            <button class="new-chat-btn" onclick="startNewSession()">
+                <i class="fas fa-plus"></i> Nouvelle Discussion
+            </button>
         </div>
 
-        <div class="separator"></div>
-        <h3 style="font-size: 12px; color: #64748b; margin-bottom: 10px;">HISTORIQUE</h3>
-        
-        <div class="history-list" id="historyList">
+        <div class="scrollable-content">
+            <div class="sidebar-settings">
+                <details class="profile-details">
+                    <summary>👤 Profil Utilisateur</summary>
+                    <div class="settings-content">
+                        <label>Âge</label>
+                        <input type="number" id="userAge" value="30">
+                        
+                        <label>Langue</label>
+                        <select id="userLang">
+                            <option value="Français">Français</option>
+                            <option value="English">English</option>
+                            <option value="Espagnol">Espagnol</option>
+                        </select>
+                        
+                        <label>Niveau</label>
+                        <select id="userLevel">
+                            <option value="Simple">Simple</option>
+                            <option value="Intermédiaire" selected>Intermédiaire</option>
+                            <option value="Expert">Expert</option>
+                        </select>
+                    </div>
+                </details>
             </div>
+
+            <div class="separator"></div>
+            <h3 class="history-label">HISTORIQUE</h3>
+            <div class="history-list" id="historyList">
+                </div>
+        </div>
     </div>
 
     <div class="main-content">
         
-        <div class="tabs-container">
-            <button class="tab active" onclick="switchTab('chat')">Discussion</button>
-            <button class="tab" onclick="switchTab('scan')">Scanner une ordonnance</button>
+        <div class="tabs-wrapper">
+            <div class="tabs">
+                <button class="tab active" onclick="switchTab('chat')">Discussion</button>
+                <button class="tab" onclick="switchTab('scan')">Scanner</button>
+            </div>
         </div>
 
         <div id="chat-view" class="view active-view">
-            <div class="chat-container">
-                <div class="chat-body" id="chatBody">
-                    <div class="empty-state">👋 Bonjour ! Je suis votre assistant santé.</div>
+            <div class="chat-box" id="chatBox">
+                <div class="empty-state">
+                    <div class="empty-icon">👋</div>
+                    <h3>Bonjour !</h3>
+                    <p>Je suis votre assistant santé.</p>
                 </div>
             </div>
             
             <div class="input-area">
                 <div class="input-wrapper">
                     <textarea id="userInput" placeholder="Posez votre question..." rows="1"></textarea>
-                    <button id="sendBtn" onclick="sendMessage()"><i class="fas fa-paper-plane"></i></button>
+                    <button id="sendBtn" onclick="sendMessage()"><i class="fas fa-arrow-up"></i></button>
                 </div>
             </div>
         </div>
 
         <div id="scan-view" class="view">
             <div class="scan-container">
-                <div class="upload-box">
-                    <i class="fas fa-cloud-upload-alt" style="font-size: 40px; color: #3b82f6; margin-bottom: 15px;"></i>
-                    <h3>Déposez votre ordonnance ici</h3>
-                    <p style="color: #64748b; font-size: 14px;">JPG, PNG ou PDF</p>
-                    <input type="file" id="fileInput" accept=".jpg,.png,.jpeg,.pdf" style="margin-top: 20px;">
-                    <button class="analyze-btn" onclick="uploadFile()">Lancer l'analyse</button>
+                <div class="upload-zone" onclick="document.getElementById('fileInput').click()">
+                    <i class="fas fa-cloud-upload-alt"></i>
+                    <h3>Cliquez pour scanner</h3>
+                    <p>Formats supportés : JPG, PNG, PDF</p>
+                    <input type="file" id="fileInput" hidden accept=".jpg,.png,.jpeg,.pdf" onchange="handleFileSelect()">
+                </div>
+                <div id="fileNameDisplay" class="file-name hidden"></div>
+                <button class="primary-btn hidden" id="analyzeBtn" onclick="uploadFile()">Lancer l'analyse</button>
+                
+                <div id="scanLoader" class="loader hidden">
+                    <div class="spinner"></div> Analyse en cours...
                 </div>
                 
-                <div id="scanLoader" class="loader hidden">Analyse en cours...</div>
-                
-                <div id="scanResult" class="scan-result hidden">
-                    <h4>Résultat de l'analyse :</h4>
-                    <div id="scanTextContent"></div>
+                <div id="scanResultSection" class="hidden">
+                    
+                    <div id="medCardsContainer"></div>
+                    
+                    <div class="med-card-result">
+                        <div class="med-header"><i class="fas fa-info-circle"></i> Explication & Analyse</div>
+                        <div id="scanExplanation" class="med-body"></div>
+                    </div>
+
+                    <div class="med-card-result">
+                        <div class="med-header"><i class="fas fa-file-alt"></i> Contenu Brut</div>
+                        <div id="scanRawContent" class="med-body raw-text"></div>
+                    </div>
                 </div>
             </div>
         </div>
