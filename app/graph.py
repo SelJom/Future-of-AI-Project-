@@ -2,12 +2,12 @@ from langgraph.graph import StateGraph, END
 from app.state import MedicalAgentState
 from app.nodes import (
     supervisor_node,
+    simple_medical_node,  
     medical_expert_node,
     profiler_node,
     translator_node,
     guardian_node,
     general_chat_node
-    # visualizer_node # REMOVED
 )
 
 def should_retry(state):
@@ -21,46 +21,50 @@ def should_retry(state):
 def build_graph():
     workflow = StateGraph(MedicalAgentState)
 
-    # --- Add Nodes ---
+    # --- ADD NODES ---
     workflow.add_node("supervisor", supervisor_node)
     workflow.add_node("general_chat", general_chat_node)
+    workflow.add_node("simple_medical", simple_medical_node) # NEW
     
-    # Medical Chain
+    # Complex Chain
     workflow.add_node("medical_expert", medical_expert_node)
     workflow.add_node("profiler", profiler_node)
     workflow.add_node("translator", translator_node)
     workflow.add_node("guardian", guardian_node)
-    # workflow.add_node("visualizer", visualizer_node) # REMOVED
 
-    # --- Define Edges ---
+    # --- DEFINE EDGES ---
     workflow.set_entry_point("supervisor")
 
-    # 1. Supervisor Decision
+    # 1. Supervisor Routing (Orchestrator)
     workflow.add_conditional_edges(
         "supervisor",
         lambda x: x["next_step"],
         {
             "GENERAL_CHAT": "general_chat",
-            "MEDICAL_CHAIN": "medical_expert"
+            "SIMPLE_MEDICAL": "simple_medical", # Fast Track
+            "COMPLEX_MEDICAL": "medical_expert" # Slow/Safe Track
         }
     )
 
-    # 2. Linear Chain
+    # 2. Simple Medical -> End
+    workflow.add_edge("simple_medical", END)
+
+    # 3. Complex Chain Flow
     workflow.add_edge("medical_expert", "profiler")
     workflow.add_edge("profiler", "translator")
     workflow.add_edge("translator", "guardian")
 
-    # 3. Conditional Loop (Guardian -> Translator OR END)
+    # 4. Guardian Loop
     workflow.add_conditional_edges(
         "guardian",
         should_retry,
         {
-            "retry": "translator",   # Return to drafting with feedback
-            "finalize": END          # MODIFIED: Goes straight to END (no image generation)
+            "retry": "translator",
+            "finalize": END
         }
     )
 
-    # 4. End
+    # 5. General Chat -> End
     workflow.add_edge("general_chat", END)
 
     return workflow.compile()

@@ -10,7 +10,6 @@ from pydantic import BaseModel
 from typing import List, Optional
 from dotenv import load_dotenv
 
-# --- INTERNAL IMPORTS ---
 from app.vision import analyze_prescription_stream, process_file_to_images
 from app.graph import graph
 from app.config import Config
@@ -22,7 +21,7 @@ from app.vector_store import (
     get_session_history, 
     delete_session, 
     get_all_sessions,
-    update_session_title # Ensure this is in vector_store.py
+    update_session_title 
 )
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 
@@ -51,15 +50,13 @@ class ChatRequest(BaseModel):
 
 # --- HELPER: TITLE GENERATION ---
 def generate_title(history):
-    """Generates a short 3-word title based on the conversation."""
     try:
-        # Prepare context
         messages = []
-        for msg in history[-4:]: # Use last few messages
+        for msg in history[-4:]: 
             if msg['role'] == 'user': messages.append(HumanMessage(content=msg['content']))
             elif msg['role'] == 'assistant': messages.append(AIMessage(content=msg['content']))
         
-        prompt = "Génère un titre de 3-4 mots maximum résumant cette conversation médicale. Réponds uniquement avec le titre. Pour que l'utilisateur se souvienne de la conversation"
+        prompt = "Génère un titre de 3-4 mots maximum résumant cette conversation médicale ou ce document. Réponds uniquement avec le titre."
         messages.append(HumanMessage(content=prompt))
         
         response = llm.invoke(messages)
@@ -121,21 +118,21 @@ def chat_endpoint(req: ChatRequest):
     try:
         # 1. Save User Message
         save_message_to_session(req.session_id, "user", req.message)
-        
-        # 2. Get History
         history = get_session_history(req.session_id)
         
-        # 3. LangChain Format
+        # 2. Build Message List
         lc_msgs = []
+        
+        # --- FIX: INSTRUCTION GOES FIRST ---
+        # This ensures messages[-1] is the actual user query, not the system instruction.
+        lang_instruction = SystemMessage(content=f"IMPORTANT: You must answer strictly in {req.language}. Do not switch languages.")
+        lc_msgs.append(lang_instruction)
+
         for msg in history:
             if msg['role'] == 'user': lc_msgs.append(HumanMessage(content=msg['content']))
             elif msg['role'] == 'assistant': lc_msgs.append(AIMessage(content=msg['content']))
             elif msg['role'] == 'system': lc_msgs.append(SystemMessage(content=msg['content']))
-            
-        lang_instruction = SystemMessage(content=f"IMPORTANT: You must answer strictly in {req.language}. Do not switch languages.")
-        lc_msgs.append(lang_instruction)
         
-        # 4. Invoke Graph
         user_profile = {
             "age": str(req.age),
             "language": req.language,
@@ -153,19 +150,12 @@ def chat_endpoint(req: ChatRequest):
         response = graph.invoke(inputs)
         ai_text = response["messages"][-1].content
         
-        # Audit
         metrics = auditor.audit_text(ai_text)
-        
-        # 5. Save AI Response
         save_message_to_session(req.session_id, "assistant", ai_text)
         
-        # 6. --- AUTO-TITLE GENERATION ---
-        # Check if we have roughly 2 exchanges (User + AI + User + AI = 4 messages)
-        # We count messages excluding system ones to be safe
+        # Auto-Title
         user_ai_msgs = [m for m in history if m['role'] in ['user', 'assistant']]
-        # Add the one we just generated
         if len(user_ai_msgs) >= 3 and len(user_ai_msgs) <= 5: 
-             # Update title asynchronously (conceptually)
              new_title = generate_title(get_session_history(req.session_id))
              update_session_title(req.session_id, new_title)
         
@@ -184,28 +174,23 @@ async def upload_file(
 ):
     temp_filename = f"temp_{file.filename}"
     try:
-        # 1. Save temp file
         with open(temp_filename, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
             
-        # 2. Read File Bytes
         with open(temp_filename, "rb") as f:
             file_bytes = f.read()
             
-        # 3. Process Image
         images_data, error = process_file_to_images(file_bytes, file.content_type or "application/pdf")
         
         if error: 
             raise HTTPException(status_code=400, detail=error)
             
-        # 4. OCR Extraction
         full_text = ""
         if images_data:
             for _, _, img_bytes in images_data:
                 for chunk in analyze_prescription_stream(img_bytes):
                     full_text += chunk
         
-        # 5. Try to parse JSON for Cards
         meds_data = []
         try:
             start = full_text.find('{')
@@ -218,12 +203,19 @@ async def upload_file(
         except Exception:
             pass 
 
-        # 6. AI Explanation
+        # --- QUERY WITH KEYWORD EXTRACTION ---
         query = (
-            f"You are a pedagogical assistant. Here is raw extracted medical text: {full_text}. "
-            f"Structured data found: {json.dumps(meds_data, ensure_ascii=False) if meds_data else 'None'}. "
-            f"Explain to a {age} year old patient what this is (meds, frequency, precautions). "
-            f"Answer in {language}."
+            f"You are a medical assistant for a {age} year old patient. Language: {language}.\n"
+            f"CONTEXT: Raw Text: \"{full_text}\". Structured Data: {json.dumps(meds_data, ensure_ascii=False) if meds_data else 'None'}.\n\n"
+            f"TASK 1: Write a clear, reassuring, and educational explanation for the patient about this document. "
+            f"Explain the purpose, usage, and precautions. Do NOT include technical details.\n\n"
+            f"TASK 2: Extract key medical entities into a valid JSON object at the very end.\n"
+            f"Categories (Use {language}): 'Médicament', 'Dosage', 'Fréquence', 'Symptôme', 'Type'.\n"
+            f"If multiple values exist, combine them (e.g. 'Doliprane, Advil').\n\n"
+            f"REQUIRED OUTPUT FORMAT:\n"
+            f"[Your Explanation Here]\n"
+            f"||DATA||\n"
+            f"{{ \"Category\": \"Value\" }}"
         )
         
         lc_msgs = [HumanMessage(content=query)]
@@ -232,19 +224,42 @@ async def upload_file(
             "user_profile": {"age":str(age), "language":language, "literacy_level":"Simple"}, 
             "iteration_count":0
         })
-        explanation = response["messages"][-1].content
-
-        # 7. Save Context to Session
+        
+        raw_response = response["messages"][-1].content
+        
+        # --- PARSE SEPARATED RESPONSE ---
+        explanation = raw_response
+        keywords = []
+        
+        if "||DATA||" in raw_response:
+            parts = raw_response.split("||DATA||")
+            explanation = parts[0].strip()
+            try:
+                json_part = parts[1].strip()
+                s = json_part.find('{')
+                e = json_part.rfind('}') + 1
+                if s != -1 and e != -1:
+                    json_str = json_part[s:e]
+                    data_obj = json.loads(json_str)
+                    keywords = [f"{k} : {v}" for k, v in data_obj.items()]
+            except Exception as e:
+                print(f"Keyword Parsing Error: {e}")
+        
         save_message_to_session(session_id, "system", f"Uploaded Document Content: {full_text}")
         save_message_to_session(session_id, "assistant", explanation)
         
-        # Generate title if it's the first interaction
-        update_session_title(session_id, "Analyse Document")
+        # Title Logic
+        history = get_session_history(session_id)
+        user_msgs = [m for m in history if m['role'] == 'user']
+        if not user_msgs:
+            new_title = generate_title(history)
+            update_session_title(session_id, new_title)
         
         return {
             "extracted_text": full_text, 
             "meds_data": meds_data, 
-            "explanation": explanation
+            "explanation": explanation,
+            "keywords": keywords
         }
 
     except Exception as e:

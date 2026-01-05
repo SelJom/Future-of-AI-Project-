@@ -1,7 +1,14 @@
+# Virtual environments
 venv/
 .venv/
+env/
+
+# Environment variables
 .env
-env
-data/
+
+# Python cache / bytecode
 __pycache__/
 *.py[cod]
+
+# Runtime / generated data
+data/
