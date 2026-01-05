@@ -13,3 +13,5 @@ sentence-transformers
 python-dotenv
 tiktoken
 pydantic
+fastapi
+python-multipart

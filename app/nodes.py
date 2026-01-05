@@ -57,6 +57,7 @@ def profiler_node(state):
     age = profile.get("age", 30)
     lang = profile.get("language", "Français")
     level = profile.get("literacy_level", "Moyen")
+    temp = profile.get("temperature", 0.)
     
     prompt = f"""
     Tu es un expert en communication interculturelle et santé publique (Health Literacy).
